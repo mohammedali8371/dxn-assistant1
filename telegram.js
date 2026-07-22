@@ -68,31 +68,22 @@ function setupListener() {
     try {
       if(!event.message) return;
       if(event.message.fromId?.isBot) return;
-      
-      // تجاهل الرسائل من المجموعات التي ليس البوت مشرفاً فيها
+
       const chatId = event.message.chatId;
-      if (chatId < 0) { // مجموعة (رقم سالب)
-        try {
-          const chat = await client.getChat(chatId);
-          const me = await client.getMe();
-          // التحقق من صلاحيات البوت في المجموعة
-          if (!chat.adminRights && !chat.creator) {
-            console.log(`⏭️ Skipping group ${chatId} (bot is not admin)`);
-            return;
-          }
-        } catch(e) {
-          console.log(`⏭️ Cannot check group ${chatId}, skipping`);
-          return;
-        }
-      }
       
-      console.log(`📩 Received from ${chatId}`);
+      // ✅ تجاهل المجموعات (chatId سالب) تماماً
+      if (chatId < 0) {
+        console.log(`⏭️ Skipping group chat ${chatId} (bot works only in private chats)`);
+        return;
+      }
+
+      console.log(`📩 Received from private chat ${chatId}`);
       await messageHandler(event, client);
     } catch(e) {
       console.error('Handler error:', e);
     }
   });
-  logger.info('👂 Listening (only private chats and groups where bot is admin)');
+  logger.info('👂 Listening only in private chats (ignoring groups)');
 }
 
 export function getClient() { if(!client) throw new Error('Client not ready'); return client; }
