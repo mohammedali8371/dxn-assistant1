@@ -85,8 +85,34 @@ function setupListener() {
       }
 
       console.log(`📩 Private chat from ${chatId}`);
-      console.log(`📝 Message text: "${event.message.text || 'NO TEXT'}"`);
-      await messageHandler(event, client, chatId);
+      
+      // ✅ طريقة جديدة لاستخراج النص
+      let text = null;
+      if (event.message.text) text = event.message.text;
+      else if (event.message.message) text = event.message.message;
+      else if (event.message.rawText) text = event.message.rawText;
+      else if (event.message.caption) text = event.message.caption;
+      
+      // إذا كان هناك وسائط، حاول استخراج النص من caption
+      if (!text && event.message.media) {
+        if (event.message.media.caption) text = event.message.media.caption;
+        else if (event.message.media.text) text = event.message.media.text;
+      }
+      
+      console.log(`📝 Extracted text: "${text || 'NO TEXT'}"`);
+
+      if (!text) {
+        // إذا كانت رسالة وسائط بدون نص
+        if (event.message.media) {
+          console.log('📎 Media without caption, treating as "وسائط"');
+          text = 'وسائط';
+        } else {
+          console.log('❌ Empty message, ignoring');
+          return;
+        }
+      }
+
+      await messageHandler(event, client, chatId, text);
     } catch(e) {
       console.error('Handler error:', e);
     }
@@ -98,27 +124,11 @@ export function getClient() { if(!client) throw new Error('Client not ready'); r
 export async function sendMsg(chatId, text, opts={}) { return getClient().sendMessage(chatId, { message:text, ...opts }); }
 export async function replyMsg(chatId, replyTo, text, opts={}) { return getClient().sendMessage(chatId, { message:text, replyTo, ...opts }); }
 
-async function messageHandler(event, client, chatId) {
+async function messageHandler(event, client, chatId, text) {
   console.log(`🔄 messageHandler called for chat ${chatId}`);
   const msg = event.message;
   const userId = msg.fromId?.userId || chatId;
   const msgId = msg.id;
-
-  let text = msg.text || '';
-  console.log(`📝 Raw text: "${text}"`);
-  
-  if (!text) {
-    if (msg.media) {
-      console.log('📎 Media message received');
-      text = 'وسائط';
-    } else if (msg.forwardedFrom) {
-      console.log('↗️ Forwarded message received');
-      text = 'رسالة معاد توجيهها';
-    } else {
-      console.log('❌ Empty message, ignoring');
-      return;
-    }
-  }
 
   console.log(`📝 Final text: "${text.substring(0, 50)}..."`);
 
