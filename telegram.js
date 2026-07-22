@@ -26,18 +26,6 @@ console.log('✅ PHONE:', PHONE);
 import { logger } from './logger.js';
 import extra from './extra.js';
 
-// ذاكرة مؤقتة
-const usersCache = new Map();
-const messagesCache = new Map();
-
-function addMessage(userId, chatId, role, content) {
-  const key = `${userId}_${chatId}`;
-  if (!messagesCache.has(key)) messagesCache.set(key, []);
-  const msgs = messagesCache.get(key);
-  msgs.push({ role, content, timestamp: new Date() });
-  if (msgs.length > 20) msgs.shift();
-}
-
 const SESSION_DIR = path.join(process.cwd(), 'sessions');
 fs.ensureDirSync(SESSION_DIR);
 let client = null;
@@ -71,19 +59,19 @@ function setupListener() {
 
       const chatId = event.message.chatId;
       
-      // ✅ تجاهل المجموعات (chatId سالب) تماماً
+      // ✅ فقط الخاص (chatId موجب)
       if (chatId < 0) {
-        console.log(`⏭️ Skipping group chat ${chatId} (bot works only in private chats)`);
+        console.log(`⏭️ Skipping group ${chatId}`);
         return;
       }
 
-      console.log(`📩 Received from private chat ${chatId}`);
+      console.log(`📩 Private chat from ${chatId}`);
       await messageHandler(event, client);
     } catch(e) {
       console.error('Handler error:', e);
     }
   });
-  logger.info('👂 Listening only in private chats (ignoring groups)');
+  logger.info('👂 Listening only in private chats');
 }
 
 export function getClient() { if(!client) throw new Error('Client not ready'); return client; }
@@ -103,19 +91,33 @@ async function messageHandler(event, client) {
     else return;
   }
 
-  addMessage(userId, chatId, 'user', text);
-
+  // أوامر مخصصة
   if (text.startsWith('/')) {
     await handleCommand(text, chatId, msgId, userId);
     return;
   }
 
-  const reply = 'مرحباً! أنا مساعد DXN. استخدم الأوامر:\n/search, /image, /models, /voice';
-  addMessage(userId, chatId, 'assistant', reply);
+  // رد ذكي تلقائي (استخدام البحث المتعدد)
   try {
-    await replyMsg(chatId, msgId, reply);
+    await sendTyping(chatId);
+    const results = await extra.multiSearch(text);
+    // اختيار أول رد غير فارغ
+    let reply = '🔍 نتائج البحث:\n';
+    let found = false;
+    for (const r of results) {
+      if (r.answer) {
+        reply += `\n*${r.provider}*: ${r.answer.substring(0, 800)}`;
+        found = true;
+        break; // نأخذ أول رد فقط
+      }
+    }
+    if (!found) {
+      reply = 'عذراً، لم أجد إجابة لسؤالك. جرب /search, /image, /models, /voice';
+    }
+    await replyMsg(chatId, msgId, reply.slice(0, 4000));
   } catch(e) {
-    console.error('Reply error:', e.message);
+    console.error('AI error:', e);
+    await replyMsg(chatId, msgId, 'حدث خطأ في معالجة سؤالك، حاول مرة أخرى.');
   }
 }
 
@@ -157,6 +159,12 @@ async function handleCommand(text, chatId, msgId, userId) {
     }
     default: await replyMsg(chatId, msgId, 'الأوامر: /search, /image, /models, /voice');
   }
+}
+
+async function sendTyping(chatId) {
+  try {
+    await client.sendMessage(chatId, { action: 'typing' });
+  } catch(e) {}
 }
 
 export default { initTelegram, getClient, sendMsg, replyMsg };
