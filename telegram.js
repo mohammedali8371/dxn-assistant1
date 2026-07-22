@@ -57,6 +57,7 @@ function setupListener() {
       if (!event || !event.message) return;
       if (event.message.fromId?.isBot) return;
 
+      // استخراج chatId
       let chatId = null;
       if (event.message.peerId) {
         chatId = event.message.peerId.userId || 
@@ -67,14 +68,34 @@ function setupListener() {
       if (!chatId && event.message.fromId) chatId = event.message.fromId.userId;
       if (!chatId && event.message.chat) chatId = event.message.chat.id;
 
-      if (!chatId) return;
+      if (!chatId) {
+        console.log('❌ Could not extract chatId');
+        return;
+      }
+
+      // ✅ تجاهل المجموعات والقنوات (chatId سالب)
       if (chatId < 0) {
-        console.log(`⏭️ Skipping group ${chatId}`);
+        console.log(`⏭️ Skipping group/channel ${chatId}`);
+        return;
+      }
+
+      // ✅ تحقق إضافي: التأكد من أن هذه محادثة خاصة (وليست قناة)
+      try {
+        const chat = await client.getChat(chatId);
+        // إذا كانت المحادثة من نوع قناة أو مجموعة، نتجاهلها
+        if (chat.className === 'Channel' || chat.className === 'Chat' || chat.className === 'Chat') {
+          console.log(`⏭️ Skipping non-private chat (${chat.className})`);
+          return;
+        }
+      } catch(e) {
+        // إذا فشل الحصول على معلومات المحادثة، نتجاهل
+        console.log(`⏭️ Could not verify chat type for ${chatId}, skipping`);
         return;
       }
 
       console.log(`📩 Private chat from ${chatId}`);
 
+      // استخراج النص
       let text = null;
       if (event.message.text) text = event.message.text;
       else if (event.message.message) text = event.message.message;
@@ -88,7 +109,10 @@ function setupListener() {
       if (!text && event.message.media) {
         text = 'وسائط';
       }
-      if (!text) return;
+      if (!text) {
+        console.log('❌ Empty message, ignoring');
+        return;
+      }
 
       console.log(`📝 Text: "${text.substring(0, 30)}..."`);
       await messageHandler(event, client, chatId, text);
@@ -96,27 +120,23 @@ function setupListener() {
       console.error('Handler error:', e);
     }
   });
-  logger.info('👂 Listening for private messages');
+  logger.info('👂 Listening only in private chats (ignoring groups & channels)');
 }
 
 export function getClient() { if(!client) throw new Error('Client not ready'); return client; }
 
-// ✅ إرسال بدون replyTo لتجنب مشكلة الكيان
 export async function sendMsg(chatId, text, opts={}) {
   const c = getClient();
   try {
-    // محاولة الإرسال مباشرة
     return await c.sendMessage(chatId, { message: text, ...opts });
   } catch(e) {
-    console.log(`⚠️ Send error (direct): ${e.message.substring(0, 100)}`);
+    console.log(`⚠️ Send error: ${e.message.substring(0, 100)}`);
     try {
-      // محاولة باستخدام getInputEntity
       const entity = await c.getInputEntity(chatId);
       return await c.sendMessage(entity, { message: text, ...opts });
     } catch(e2) {
       console.log(`⚠️ Send error (entity): ${e2.message.substring(0, 100)}`);
       try {
-        // محاولة أخيرة: إرسال بدون أي خيارات إضافية
         return await c.sendMessage(chatId, { message: text });
       } catch(e3) {
         console.error('All send attempts failed:', e3.message);
@@ -127,7 +147,6 @@ export async function sendMsg(chatId, text, opts={}) {
 }
 
 export async function replyMsg(chatId, replyTo, text, opts={}) {
-  // تجاهل replyTo لتجنب المشاكل، نرسل كرسالة جديدة
   return sendMsg(chatId, text, opts);
 }
 
