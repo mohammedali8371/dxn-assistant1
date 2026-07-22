@@ -11,7 +11,7 @@ import { initTelegram, rebuildKnowledge, watchKnowledge, getKnowledgeStats } fro
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
-const PORT = config.port || 3000;
+const PORT = process.env.PORT || 3000;
 
 // ===== لوحة التحكم =====
 const auth = (req,res,next) => {
@@ -132,7 +132,7 @@ async function main() {
     await connectDB();
     watchKnowledge();
     await initTelegram();
-    app.listen(PORT, () => logger.info(`🌐 Dashboard: http://localhost:${PORT}`));
+    app.listen(PORT, "0.0.0.0", () => logger.info(`🌐 Dashboard: http://localhost:${PORT}`));
   } catch(e) { logger.errorWithContext('Startup failed', e); process.exit(1); }
 }
 
