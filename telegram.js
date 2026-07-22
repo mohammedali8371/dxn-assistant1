@@ -57,25 +57,19 @@ function setupListener() {
       if (!event || !event.message) return;
       if (event.message.fromId?.isBot) return;
 
-      // استخراج userId الصحيح للإرسال
-      let userId = null;
-      if (event.message.fromId) {
-        userId = event.message.fromId.userId;
-      } else if (event.message.peerId) {
-        userId = event.message.peerId.userId || 
+      let chatId = null;
+      if (event.message.peerId) {
+        chatId = event.message.peerId.userId || 
                  event.message.peerId.chatId || 
                  event.message.peerId.channelId;
       }
+      if (!chatId && event.message.chatId) chatId = event.message.chatId;
+      if (!chatId && event.message.fromId) chatId = event.message.fromId.userId;
+      if (!chatId && event.message.chat) chatId = event.message.chat.id;
 
-      if (!userId) {
-        console.log('❌ Could not extract userId');
-        return;
-      }
-
-      // تحويل userId إلى رقم
-      const chatId = Number(userId);
-      if (isNaN(chatId) || chatId < 0) {
-        console.log(`⏭️ Invalid chatId: ${chatId}`);
+      if (!chatId) return;
+      if (chatId < 0) {
+        console.log(`⏭️ Skipping group ${chatId}`);
         return;
       }
 
@@ -107,29 +101,23 @@ function setupListener() {
 
 export function getClient() { if(!client) throw new Error('Client not ready'); return client; }
 
-// ✅ إرسال مباشر باستخدام userId الصحيح
+// ✅ إرسال بدون replyTo لتجنب مشكلة الكيان
 export async function sendMsg(chatId, text, opts={}) {
   const c = getClient();
   try {
-    // محاولة الإرسال مباشرة باستخدام chatId
+    // محاولة الإرسال مباشرة
     return await c.sendMessage(chatId, { message: text, ...opts });
   } catch(e) {
-    const errMsg = e.message || '';
-    console.log(`⚠️ Send error: ${errMsg.substring(0, 100)}`);
-    
-    // محاولة بديلة: استخدام getInputEntity
+    console.log(`⚠️ Send error (direct): ${e.message.substring(0, 100)}`);
     try {
+      // محاولة باستخدام getInputEntity
       const entity = await c.getInputEntity(chatId);
       return await c.sendMessage(entity, { message: text, ...opts });
     } catch(e2) {
-      console.error('Alternative send failed:', e2.message);
-      
-      // المحاولة الثالثة: إرسال بدون replyTo
+      console.log(`⚠️ Send error (entity): ${e2.message.substring(0, 100)}`);
       try {
-        const newOpts = { ...opts };
-        delete newOpts.replyTo;
-        const entity2 = await c.getInputEntity(chatId);
-        return await c.sendMessage(entity2, { message: text, ...newOpts });
+        // محاولة أخيرة: إرسال بدون أي خيارات إضافية
+        return await c.sendMessage(chatId, { message: text });
       } catch(e3) {
         console.error('All send attempts failed:', e3.message);
         throw e3;
@@ -139,15 +127,13 @@ export async function sendMsg(chatId, text, opts={}) {
 }
 
 export async function replyMsg(chatId, replyTo, text, opts={}) {
-  return sendMsg(chatId, text, { replyTo, ...opts });
+  // تجاهل replyTo لتجنب المشاكل، نرسل كرسالة جديدة
+  return sendMsg(chatId, text, opts);
 }
 
 async function messageHandler(event, client, chatId, text) {
-  const msg = event.message;
-  const msgId = msg.id;
-
   if (text.startsWith('/')) {
-    await handleCommand(text, chatId, msgId);
+    await handleCommand(text, chatId);
     return;
   }
 
@@ -166,15 +152,15 @@ async function messageHandler(event, client, chatId, text) {
     if (!found) {
       reply = 'عذراً، لم أجد إجابة لسؤالك. جرب /search, /image, /models, /voice';
     }
-    await replyMsg(chatId, msgId, reply.slice(0, 4000));
+    await sendMsg(chatId, reply.slice(0, 4000));
   } catch(e) {
     console.error('AI error:', e);
     const friendlyError = 'عذراً، واجهت صعوبة في الرد حالياً. حاول مرة أخرى بعد قليل.';
-    await replyMsg(chatId, msgId, friendlyError);
+    await sendMsg(chatId, friendlyError);
   }
 }
 
-async function handleCommand(text, chatId, msgId) {
+async function handleCommand(text, chatId) {
   const parts = text.split(' ');
   const cmd = parts[0].toLowerCase();
   const args = parts.slice(1).join(' ');
@@ -182,40 +168,40 @@ async function handleCommand(text, chatId, msgId) {
   try {
     switch(cmd) {
       case '/search': {
-        if(!args) return replyMsg(chatId, msgId, 'استخدم: /search <سؤالك>');
+        if(!args) return sendMsg(chatId, 'استخدم: /search <سؤالك>');
         const results = await extra.multiSearch(args);
         let reply = '🔍 نتائج البحث:\n';
         for(const r of results) reply += `\n*${r.provider}*: ${r.answer||'❌ '+r.error}`;
-        await replyMsg(chatId, msgId, reply.slice(0,4000));
+        await sendMsg(chatId, reply.slice(0,4000));
         break;
       }
       case '/image': {
-        if(!args) return replyMsg(chatId, msgId, 'استخدم: /image <وصف>');
+        if(!args) return sendMsg(chatId, 'استخدم: /image <وصف>');
         const result = await extra.generateImage(args);
         if(result.success) await sendMsg(chatId, '✅ صورة:', { file: result.filePath });
-        else await replyMsg(chatId, msgId, 'فشل توليد الصورة');
+        else await sendMsg(chatId, 'فشل توليد الصورة');
         break;
       }
       case '/models': {
-        if(!args) return replyMsg(chatId, msgId, 'استخدم: /models <سؤالك>');
+        if(!args) return sendMsg(chatId, 'استخدم: /models <سؤالك>');
         const results = await extra.chatWithModels(args);
         let reply = '🤖 ردود النماذج:\n';
         for(const r of results) reply += `\n*${r.model}*: ${r.answer||'❌ '+r.error}`;
-        await replyMsg(chatId, msgId, reply.slice(0,4000));
+        await sendMsg(chatId, reply.slice(0,4000));
         break;
       }
       case '/voice': {
-        if(!args) return replyMsg(chatId, msgId, 'استخدم: /voice <نص>');
+        if(!args) return sendMsg(chatId, 'استخدم: /voice <نص>');
         const result = await extra.textToSpeech(args);
         if(result.success) await sendMsg(chatId, '🎵 صوت:', { file: result.filePath });
-        else await replyMsg(chatId, msgId, 'فشل تحويل النص');
+        else await sendMsg(chatId, 'فشل تحويل النص');
         break;
       }
-      default: await replyMsg(chatId, msgId, 'الأوامر: /search, /image, /models, /voice');
+      default: await sendMsg(chatId, 'الأوامر: /search, /image, /models, /voice');
     }
   } catch(e) {
     console.error(`Command ${cmd} error:`, e);
-    await replyMsg(chatId, msgId, 'عذراً، حدث تأخير في الرد. حاول مرة أخرى.');
+    await sendMsg(chatId, 'عذراً، حدث تأخير في الرد. حاول مرة أخرى.');
   }
 }
 

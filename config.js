@@ -7,8 +7,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.join(__dirname, '.env') });
 
-// قراءة المفتاح مباشرة من process.env
-const FIREBASE_KEY = process.env.FIREBASE_KEY || 'AIzaSyA27E7jUV8osRY7NzwP2fZwGoTkp5gJhZw';
+// المفتاح مضمن في الكود مباشرةً لتجنب مشاكل قراءة المتغيرات
+const FIREBASE_KEY = 'AIzaSyA27E7jUV8osRY7NzwP2fZwGoTkp5gJhZw';
 
 export const config = {
   apiId: parseInt(process.env.API_ID, 10),
@@ -27,10 +27,10 @@ export const config = {
   nodeEnv: process.env.NODE_ENV || 'development',
 };
 
-console.log('✅ FIREBASE_KEY from env:', config.firebaseKey ? 'Present (length: ' + config.firebaseKey.length + ')' : 'MISSING!');
+console.log('✅ FIREBASE_KEY loaded (length):', config.firebaseKey.length);
 
 export function validateEnv() {
-  const required = ['apiId', 'apiHash', 'phone', 'mongoUri'];
+  const required = ['apiId', 'apiHash', 'phone'];
   const missing = required.filter(key => !config[key]);
   if (missing.length) throw new Error('Missing env: ' + missing.join(', '));
   return true;
