@@ -1,0 +1,33 @@
+{
+  "name": "dxn-assistant",
+  "version": "3.0.0",
+  "type": "module",
+  "description": "مساعد DXN الذكي - نسخة مدمجة في 10 ملفات",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "dependencies": {
+    "axios": "^1.5.0",
+    "cheerio": "^1.0.0-rc.12",
+    "chokidar": "^3.5.3",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "fs-extra": "^11.1.1",
+    "input": "^1.0.1",
+    "mammoth": "^1.6.0",
+    "mongoose": "^7.5.0",
+    "node-cache": "^5.1.2",
+    "openai": "^4.20.0",
+    "pdf-parse": "^1.1.1",
+    "sharp": "^0.33.0",
+    "telegram": "^2.6.0",
+    "uuid": "^9.0.1",
+    "winston": "^3.10.0",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  }
+}

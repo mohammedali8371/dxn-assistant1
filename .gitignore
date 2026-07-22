@@ -1,0 +1,10 @@
+node_modules/
+.env
+sessions/
+logs/
+media/
+temp/
+*.log
+*.wav
+*.jpg
+*.png
