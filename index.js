@@ -11,7 +11,7 @@ const PORT = process.env.PORT || 3000;
 
 async function initApp() {
   try {
-    console.log('🚀 Starting DXN Assistant on Render...');
+    console.log('🔥 Starting DXN Assistant on Render...');
     initCache();
     await initTelegram();
 

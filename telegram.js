@@ -101,19 +101,29 @@ function setupListener() {
 
 export function getClient() { if(!client) throw new Error('Client not ready'); return client; }
 
-// ✅ إرسال مع محاولة إعادة المحاولة عند فشل 403
+// ✅ إرسال مع محاولة إعادة المحاولة عند فشل 403 واستخدام طرق بديلة
 export async function sendMsg(chatId, text, opts={}) {
   const c = getClient();
   try {
     return await c.sendMessage(chatId, { message: text, ...opts });
   } catch(e) {
-    if (e.message && e.message.includes('403')) {
-      console.log('⚠️ 403 error, retrying with different method...');
-      // محاولة بديلة: إرسال كـ reply إذا كان هناك replyTo
-      if (opts.replyTo) {
-        return await c.sendMessage(chatId, { message: text, replyTo: opts.replyTo });
-      } else {
-        return await c.sendMessage(chatId, { message: text });
+    const errMsg = e.message || '';
+    if (errMsg.includes('403') || errMsg.includes('CHAT_ADMIN_REQUIRED') || errMsg.includes('PEER_ID_INVALID')) {
+      console.log('⚠️ 403/peer error, retrying with alternative method...');
+      // محاولة بديلة: إرسال بدون replyTo إذا كان موجوداً
+      const newOpts = { ...opts };
+      delete newOpts.replyTo;
+      try {
+        return await c.sendMessage(chatId, { message: text, ...newOpts });
+      } catch(e2) {
+        console.error('Alternative send failed:', e2.message);
+        // المحاولة الثالثة: إرسال مباشر بدون أي خيارات إضافية
+        try {
+          return await c.sendMessage(chatId, { message: text });
+        } catch(e3) {
+          console.error('All send attempts failed:', e3.message);
+          throw e3;
+        }
       }
     }
     throw e;
@@ -151,7 +161,6 @@ async function messageHandler(event, client, chatId, text) {
     await replyMsg(chatId, msgId, reply.slice(0, 4000));
   } catch(e) {
     console.error('AI error:', e);
-    // ✅ رسالة ودودة بدون ذكر الذكاء الاصطناعي
     const friendlyError = 'عذراً، واجهت صعوبة في الرد حالياً. حاول مرة أخرى بعد قليل.';
     await replyMsg(chatId, msgId, friendlyError);
   }
@@ -198,7 +207,6 @@ async function handleCommand(text, chatId, msgId) {
     }
   } catch(e) {
     console.error(`Command ${cmd} error:`, e);
-    // ✅ رسالة ودودة بدون ذكر الذكاء الاصطناعي
     await replyMsg(chatId, msgId, 'عذراً، حدث تأخير في الرد. حاول مرة أخرى.');
   }
 }

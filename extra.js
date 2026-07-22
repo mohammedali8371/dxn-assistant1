@@ -2,7 +2,7 @@ import axios from 'axios';
 import { logger } from './logger.js';
 import config from './config.js';
 import { generateId } from './config.js';
-import * as cheerio from 'cheerio';
+import cheerio from 'cheerio';
 import fs from 'fs-extra';
 import path from 'path';
 
@@ -142,7 +142,6 @@ export async function textToSpeech(text) {
     const pcm = resp.data;
     const filename = path.join(process.cwd(), 'media', `speech_${Date.now()}.wav`);
     await fs.ensureDir(path.dirname(filename));
-    // رأس WAV
     const wav = Buffer.alloc(44);
     wav.write('RIFF',0); wav.writeUInt32LE(36+pcm.length,4); wav.write('WAVE',8);
     wav.write('fmt ',12); wav.writeUInt32LE(16,16); wav.writeUInt16LE(1,20);
