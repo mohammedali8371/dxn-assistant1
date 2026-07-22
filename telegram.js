@@ -54,8 +54,15 @@ function setupListener() {
   if(!client) throw new Error('No client');
   client.addEventHandler(async (event) => {
     try {
-      if(!event.message) return;
-      if(event.message.fromId?.isBot) return;
+      console.log('📨 Raw event received');
+      if(!event.message) {
+        console.log('❌ No message in event');
+        return;
+      }
+      if(event.message.fromId?.isBot) {
+        console.log('🤖 Message from bot, ignoring');
+        return;
+      }
 
       let chatId = null;
       if (event.message.peerId) {
@@ -78,6 +85,7 @@ function setupListener() {
       }
 
       console.log(`📩 Private chat from ${chatId}`);
+      console.log(`📝 Message text: "${event.message.text || 'NO TEXT'}"`);
       await messageHandler(event, client, chatId);
     } catch(e) {
       console.error('Handler error:', e);
@@ -91,21 +99,31 @@ export async function sendMsg(chatId, text, opts={}) { return getClient().sendMe
 export async function replyMsg(chatId, replyTo, text, opts={}) { return getClient().sendMessage(chatId, { message:text, replyTo, ...opts }); }
 
 async function messageHandler(event, client, chatId) {
+  console.log(`🔄 messageHandler called for chat ${chatId}`);
   const msg = event.message;
   const userId = msg.fromId?.userId || chatId;
   const msgId = msg.id;
 
   let text = msg.text || '';
+  console.log(`📝 Raw text: "${text}"`);
+  
   if (!text) {
-    if (msg.media) text = 'وسائط';
-    else if (msg.forwardedFrom) text = 'رسالة معاد توجيهها';
-    else return;
+    if (msg.media) {
+      console.log('📎 Media message received');
+      text = 'وسائط';
+    } else if (msg.forwardedFrom) {
+      console.log('↗️ Forwarded message received');
+      text = 'رسالة معاد توجيهها';
+    } else {
+      console.log('❌ Empty message, ignoring');
+      return;
+    }
   }
 
-  console.log(`📝 Processing message: "${text.substring(0, 50)}..."`);
+  console.log(`📝 Final text: "${text.substring(0, 50)}..."`);
 
   if (text.startsWith('/')) {
-    console.log(`⚡ Command detected: ${text.split(' ')[0]}`);
+    console.log(`⚡ Command: ${text.split(' ')[0]}`);
     await handleCommand(text, chatId, msgId, userId);
     return;
   }
