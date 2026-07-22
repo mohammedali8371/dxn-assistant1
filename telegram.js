@@ -26,22 +26,9 @@ console.log('✅ PHONE:', PHONE);
 import { logger } from './logger.js';
 import extra from './extra.js';
 
-// ذاكرة مؤقتة (بدون قاعدة بيانات)
+// ذاكرة مؤقتة بدون قاعدة بيانات
 const usersCache = new Map();
 const messagesCache = new Map();
-
-function getUser(telegramId) {
-  if (!usersCache.has(telegramId)) {
-    usersCache.set(telegramId, { 
-      _id: telegramId, 
-      telegramId, 
-      username: '', 
-      firstName: '', 
-      lastName: ''
-    });
-  }
-  return usersCache.get(telegramId);
-}
 
 function addMessage(userId, chatId, role, content) {
   const key = `${userId}_${chatId}`;
@@ -107,7 +94,6 @@ async function messageHandler(event, client) {
     else return replyMsg(chatId, msgId, 'نوع غير مدعوم');
   }
 
-  getUser(userId);
   addMessage(userId, chatId, 'user', text);
 
   if (text.startsWith('/')) {
