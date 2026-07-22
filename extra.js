@@ -2,7 +2,7 @@ import axios from 'axios';
 import { logger } from './logger.js';
 import config from './config.js';
 import { generateId } from './config.js';
-import cheerio from 'cheerio';
+import * as cheerio from 'cheerio';
 import fs from 'fs-extra';
 import path from 'path';
 
