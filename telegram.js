@@ -57,7 +57,7 @@ function setupListener() {
       if (!event || !event.message) return;
       if (event.message.fromId?.isBot) return;
 
-      // استخراج chatId
+      // استخراج chatId بشكل دقيق
       let chatId = null;
       if (event.message.peerId) {
         chatId = event.message.peerId.userId || 
@@ -73,29 +73,15 @@ function setupListener() {
         return;
       }
 
-      // ✅ تجاهل المجموعات والقنوات (chatId سالب)
+      // تجاهل المجموعات والقنوات (chatId سالب)
       if (chatId < 0) {
         console.log(`⏭️ Skipping group/channel ${chatId}`);
         return;
       }
 
-      // ✅ تحقق إضافي: التأكد من أن هذه محادثة خاصة (وليست قناة)
-      try {
-        const chat = await client.getChat(chatId);
-        // إذا كانت المحادثة من نوع قناة أو مجموعة، نتجاهلها
-        if (chat.className === 'Channel' || chat.className === 'Chat' || chat.className === 'Chat') {
-          console.log(`⏭️ Skipping non-private chat (${chat.className})`);
-          return;
-        }
-      } catch(e) {
-        // إذا فشل الحصول على معلومات المحادثة، نتجاهل
-        console.log(`⏭️ Could not verify chat type for ${chatId}, skipping`);
-        return;
-      }
-
+      // التحقق من أن chatId موجب (خاص) وتجاهل أي شيء آخر
       console.log(`📩 Private chat from ${chatId}`);
 
-      // استخراج النص
       let text = null;
       if (event.message.text) text = event.message.text;
       else if (event.message.message) text = event.message.message;
@@ -120,33 +106,38 @@ function setupListener() {
       console.error('Handler error:', e);
     }
   });
-  logger.info('👂 Listening only in private chats (ignoring groups & channels)');
+  logger.info('👂 Listening only in private chats');
 }
 
 export function getClient() { if(!client) throw new Error('Client not ready'); return client; }
 
+// ✅ دالة إرسال آمنة باستخدام getInputEntity
 export async function sendMsg(chatId, text, opts={}) {
   const c = getClient();
   try {
-    return await c.sendMessage(chatId, { message: text, ...opts });
+    // محاولة الحصول على الكيان بشكل صحيح
+    let entity;
+    try {
+      entity = await c.getInputEntity(chatId);
+    } catch(e) {
+      // إذا فشل، نحاول باستخدام chatId كرقم
+      entity = await c.getInputEntity(Number(chatId));
+    }
+    return await c.sendMessage(entity, { message: text, ...opts });
   } catch(e) {
     console.log(`⚠️ Send error: ${e.message.substring(0, 100)}`);
+    // محاولة أخيرة: الإرسال باستخدام chatId مباشرة
     try {
-      const entity = await c.getInputEntity(chatId);
-      return await c.sendMessage(entity, { message: text, ...opts });
+      return await c.sendMessage(chatId, { message: text, ...opts });
     } catch(e2) {
-      console.log(`⚠️ Send error (entity): ${e2.message.substring(0, 100)}`);
-      try {
-        return await c.sendMessage(chatId, { message: text });
-      } catch(e3) {
-        console.error('All send attempts failed:', e3.message);
-        throw e3;
-      }
+      console.error('All send attempts failed:', e2.message);
+      throw e2;
     }
   }
 }
 
 export async function replyMsg(chatId, replyTo, text, opts={}) {
+  // تجاهل replyTo لتجنب المشاكل
   return sendMsg(chatId, text, opts);
 }
 
