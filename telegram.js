@@ -25,6 +25,7 @@ console.log('✅ PHONE:', PHONE);
 
 import { logger } from './logger.js';
 import extra from './extra.js';
+import { isDXNRelated } from './utils.js';
 
 const SESSION_DIR = path.join(process.cwd(), 'sessions');
 fs.ensureDirSync(SESSION_DIR);
@@ -57,7 +58,6 @@ function setupListener() {
       if (!event || !event.message) return;
       if (event.message.fromId?.isBot) return;
 
-      // استخراج chatId بشكل دقيق
       let chatId = null;
       if (event.message.peerId) {
         chatId = event.message.peerId.userId || 
@@ -73,13 +73,11 @@ function setupListener() {
         return;
       }
 
-      // تجاهل المجموعات والقنوات (chatId سالب)
       if (chatId < 0) {
         console.log(`⏭️ Skipping group/channel ${chatId}`);
         return;
       }
 
-      // التحقق من أن chatId موجب (خاص) وتجاهل أي شيء آخر
       console.log(`📩 Private chat from ${chatId}`);
 
       let text = null;
@@ -111,22 +109,18 @@ function setupListener() {
 
 export function getClient() { if(!client) throw new Error('Client not ready'); return client; }
 
-// ✅ دالة إرسال آمنة باستخدام getInputEntity
 export async function sendMsg(chatId, text, opts={}) {
   const c = getClient();
   try {
-    // محاولة الحصول على الكيان بشكل صحيح
     let entity;
     try {
       entity = await c.getInputEntity(chatId);
     } catch(e) {
-      // إذا فشل، نحاول باستخدام chatId كرقم
       entity = await c.getInputEntity(Number(chatId));
     }
     return await c.sendMessage(entity, { message: text, ...opts });
   } catch(e) {
     console.log(`⚠️ Send error: ${e.message.substring(0, 100)}`);
-    // محاولة أخيرة: الإرسال باستخدام chatId مباشرة
     try {
       return await c.sendMessage(chatId, { message: text, ...opts });
     } catch(e2) {
@@ -137,13 +131,20 @@ export async function sendMsg(chatId, text, opts={}) {
 }
 
 export async function replyMsg(chatId, replyTo, text, opts={}) {
-  // تجاهل replyTo لتجنب المشاكل
   return sendMsg(chatId, text, opts);
 }
 
 async function messageHandler(event, client, chatId, text) {
   if (text.startsWith('/')) {
     await handleCommand(text, chatId);
+    return;
+  }
+
+  // ✅ التحقق مما إذا كان السؤال متعلقاً بـ DXN
+  if (!isDXNRelated(text)) {
+    console.log('⏭️ Question not related to DXN, skipping AI reply');
+    const reply = 'أعتذر، اختصاصي يقتصر على المعلومات المتوفرة لدي حول DXN.';
+    await sendMsg(chatId, reply);
     return;
   }
 
@@ -160,7 +161,7 @@ async function messageHandler(event, client, chatId, text) {
       }
     }
     if (!found) {
-      reply = 'عذراً، لم أجد إجابة لسؤالك. جرب /search, /image, /models, /voice';
+      reply = 'المعلومة هذه غير موجودة عندي حالياً.';
     }
     await sendMsg(chatId, reply.slice(0, 4000));
   } catch(e) {
