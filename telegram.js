@@ -57,18 +57,29 @@ function setupListener() {
       if(!event.message) return;
       if(event.message.fromId?.isBot) return;
 
-      // استخراج chatId بشكل صحيح
-      let chatId = event.message.chatId;
-      if (!chatId) {
-        // محاولة بديلة
-        if (event.message.peerId) {
-          chatId = event.message.peerId.chatId || 
-                   event.message.peerId.userId || 
-                   event.message.peerId.channelId;
-        }
-        if (!chatId && event.message.chat) {
-          chatId = event.message.chat.id;
-        }
+      // استخراج chatId من عدة مصادر
+      let chatId = null;
+      
+      // 1. من peerId (الأكثر دقة)
+      if (event.message.peerId) {
+        chatId = event.message.peerId.userId || 
+                 event.message.peerId.chatId || 
+                 event.message.peerId.channelId;
+      }
+      
+      // 2. من chatId المباشر
+      if (!chatId && event.message.chatId) {
+        chatId = event.message.chatId;
+      }
+      
+      // 3. من fromId (للرسائل الخاصة)
+      if (!chatId && event.message.fromId) {
+        chatId = event.message.fromId.userId;
+      }
+      
+      // 4. من الكائن chat
+      if (!chatId && event.message.chat) {
+        chatId = event.message.chat.id;
       }
 
       if (!chatId) {
