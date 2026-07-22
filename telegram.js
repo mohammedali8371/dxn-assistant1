@@ -57,37 +57,21 @@ function setupListener() {
       if(!event.message) return;
       if(event.message.fromId?.isBot) return;
 
-      // استخراج chatId من عدة مصادر
       let chatId = null;
-      
-      // 1. من peerId (الأكثر دقة)
       if (event.message.peerId) {
         chatId = event.message.peerId.userId || 
                  event.message.peerId.chatId || 
                  event.message.peerId.channelId;
       }
-      
-      // 2. من chatId المباشر
-      if (!chatId && event.message.chatId) {
-        chatId = event.message.chatId;
-      }
-      
-      // 3. من fromId (للرسائل الخاصة)
-      if (!chatId && event.message.fromId) {
-        chatId = event.message.fromId.userId;
-      }
-      
-      // 4. من الكائن chat
-      if (!chatId && event.message.chat) {
-        chatId = event.message.chat.id;
-      }
+      if (!chatId && event.message.chatId) chatId = event.message.chatId;
+      if (!chatId && event.message.fromId) chatId = event.message.fromId.userId;
+      if (!chatId && event.message.chat) chatId = event.message.chat.id;
 
       if (!chatId) {
         console.log('❌ Could not extract chatId from message');
         return;
       }
 
-      // ✅ فقط الخاص (chatId موجب)
       if (chatId < 0) {
         console.log(`⏭️ Skipping group ${chatId}`);
         return;
@@ -118,16 +102,22 @@ async function messageHandler(event, client, chatId) {
     else return;
   }
 
-  // أوامر مخصصة
+  console.log(`📝 Processing message: "${text.substring(0, 50)}..."`);
+
   if (text.startsWith('/')) {
+    console.log(`⚡ Command detected: ${text.split(' ')[0]}`);
     await handleCommand(text, chatId, msgId, userId);
     return;
   }
 
-  // رد ذكي تلقائي
   try {
+    console.log('🤖 Sending typing indicator...');
     await sendTyping(chatId);
+    
+    console.log('🔍 Calling multiSearch...');
     const results = await extra.multiSearch(text);
+    console.log(`✅ Got ${results.length} results`);
+
     let reply = '🔍 نتائج البحث:\n';
     let found = false;
     for (const r of results) {
@@ -140,10 +130,17 @@ async function messageHandler(event, client, chatId) {
     if (!found) {
       reply = 'عذراً، لم أجد إجابة لسؤالك. جرب /search, /image, /models, /voice';
     }
+    
+    console.log(`💬 Sending reply (${reply.length} chars)...`);
     await replyMsg(chatId, msgId, reply.slice(0, 4000));
+    console.log('✅ Reply sent successfully');
   } catch(e) {
     console.error('AI error:', e);
-    await replyMsg(chatId, msgId, 'حدث خطأ في معالجة سؤالك، حاول مرة أخرى.');
+    try {
+      await replyMsg(chatId, msgId, 'حدث خطأ في معالجة سؤالك، حاول مرة أخرى.');
+    } catch(replyErr) {
+      console.error('Failed to send error message:', replyErr);
+    }
   }
 }
 
@@ -152,45 +149,54 @@ async function handleCommand(text, chatId, msgId, userId) {
   const cmd = parts[0].toLowerCase();
   const args = parts.slice(1).join(' ');
 
-  switch(cmd) {
-    case '/search': {
-      if(!args) return replyMsg(chatId, msgId, 'استخدم: /search <سؤالك>');
-      const results = await extra.multiSearch(args);
-      let reply = '🔍 نتائج البحث:\n';
-      for(const r of results) reply += `\n*${r.provider}*: ${r.answer||'❌ '+r.error}`;
-      await replyMsg(chatId, msgId, reply.slice(0,4000));
-      break;
+  console.log(`⚡ Handling command: ${cmd}`);
+
+  try {
+    switch(cmd) {
+      case '/search': {
+        if(!args) return replyMsg(chatId, msgId, 'استخدم: /search <سؤالك>');
+        const results = await extra.multiSearch(args);
+        let reply = '🔍 نتائج البحث:\n';
+        for(const r of results) reply += `\n*${r.provider}*: ${r.answer||'❌ '+r.error}`;
+        await replyMsg(chatId, msgId, reply.slice(0,4000));
+        break;
+      }
+      case '/image': {
+        if(!args) return replyMsg(chatId, msgId, 'استخدم: /image <وصف>');
+        const result = await extra.generateImage(args);
+        if(result.success) await sendMsg(chatId, '✅ صورة:', { file: result.filePath });
+        else await replyMsg(chatId, msgId, 'فشل توليد الصورة');
+        break;
+      }
+      case '/models': {
+        if(!args) return replyMsg(chatId, msgId, 'استخدم: /models <سؤالك>');
+        const results = await extra.chatWithModels(args);
+        let reply = '🤖 ردود النماذج:\n';
+        for(const r of results) reply += `\n*${r.model}*: ${r.answer||'❌ '+r.error}`;
+        await replyMsg(chatId, msgId, reply.slice(0,4000));
+        break;
+      }
+      case '/voice': {
+        if(!args) return replyMsg(chatId, msgId, 'استخدم: /voice <نص>');
+        const result = await extra.textToSpeech(args);
+        if(result.success) await sendMsg(chatId, '🎵 صوت:', { file: result.filePath });
+        else await replyMsg(chatId, msgId, 'فشل تحويل النص');
+        break;
+      }
+      default: await replyMsg(chatId, msgId, 'الأوامر: /search, /image, /models, /voice');
     }
-    case '/image': {
-      if(!args) return replyMsg(chatId, msgId, 'استخدم: /image <وصف>');
-      const result = await extra.generateImage(args);
-      if(result.success) await sendMsg(chatId, '✅ صورة:', { file: result.filePath });
-      else await replyMsg(chatId, msgId, 'فشل توليد الصورة');
-      break;
-    }
-    case '/models': {
-      if(!args) return replyMsg(chatId, msgId, 'استخدم: /models <سؤالك>');
-      const results = await extra.chatWithModels(args);
-      let reply = '🤖 ردود النماذج:\n';
-      for(const r of results) reply += `\n*${r.model}*: ${r.answer||'❌ '+r.error}`;
-      await replyMsg(chatId, msgId, reply.slice(0,4000));
-      break;
-    }
-    case '/voice': {
-      if(!args) return replyMsg(chatId, msgId, 'استخدم: /voice <نص>');
-      const result = await extra.textToSpeech(args);
-      if(result.success) await sendMsg(chatId, '🎵 صوت:', { file: result.filePath });
-      else await replyMsg(chatId, msgId, 'فشل تحويل النص');
-      break;
-    }
-    default: await replyMsg(chatId, msgId, 'الأوامر: /search, /image, /models, /voice');
+  } catch(e) {
+    console.error(`Command ${cmd} error:`, e);
+    await replyMsg(chatId, msgId, 'حدث خطأ أثناء تنفيذ الأمر.');
   }
 }
 
 async function sendTyping(chatId) {
   try {
     await client.sendMessage(chatId, { action: 'typing' });
-  } catch(e) {}
+  } catch(e) {
+    console.log('Typing indicator failed:', e.message);
+  }
 }
 
 export default { initTelegram, getClient, sendMsg, replyMsg };
