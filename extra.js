@@ -1,32 +1,30 @@
 import axios from 'axios';
 import { logger } from './logger.js';
-import config from './config.js';
 import { generateId } from './config.js';
 import * as cheerio from 'cheerio';
 import fs from 'fs-extra';
 import path from 'path';
 
-console.log('🔑 extra.js - FIREBASE_KEY from config:', config.firebaseKey ? 'Present' : 'MISSING');
+// ✅ المفتاح مضمن هنا مباشرةً لتجنب أي مشكلة في الاستيراد
+const FIREBASE_KEY = 'AIzaSyA27E7jUV8osRY7NzwP2fZwGoTkp5gJhZw';
+console.log('✅ extra.js - FIREBASE_KEY embedded (length):', FIREBASE_KEY.length);
 
 // ===== 1. البحث المتعدد =====
 let firebaseToken = null, tokenExpiry = 0;
 async function getFirebaseToken() {
   if (firebaseToken && Date.now() < tokenExpiry-60000) return firebaseToken;
   
-  // استخدام المفتاح من config مباشرة
-  const key = config.firebaseKey;
-  if (!key) {
-    console.error('❌ FIREBASE_KEY is missing in config!');
-    throw new Error('FIREBASE_KEY is missing in config');
+  if (!FIREBASE_KEY) {
+    console.error('❌ FIREBASE_KEY is missing!');
+    throw new Error('FIREBASE_KEY is missing');
   }
   
-  console.log('🔄 Getting Firebase token with key:', key.substring(0, 10) + '...');
-  
+  console.log('🔄 Getting Firebase token...');
   const resp = await axios.post(
     'https://www.googleapis.com/identitytoolkit/v3/relyingparty/signupNewUser',
     { clientType: 'CLIENT_TYPE_ANDROID' },
     { 
-      params: { key: key },
+      params: { key: FIREBASE_KEY },
       headers: {
         'User-Agent':'Dalvik/2.1.0 (Linux; U; Android 16; 2311DRK48G)',
         'Content-Type':'application/json',
@@ -38,6 +36,7 @@ async function getFirebaseToken() {
   const data = resp.data;
   firebaseToken = 'Bearer '+data.idToken;
   tokenExpiry = Date.now() + parseInt(data.expiresIn)*1000;
+  console.log('✅ Firebase token obtained');
   return firebaseToken;
 }
 
@@ -53,7 +52,7 @@ const SEARCH_CFG = {
 export async function multiSearch(query) {
   console.log('🔍 multiSearch called with query:', query.substring(0, 30) + '...');
   const token = await getFirebaseToken();
-  console.log('✅ Firebase token obtained');
+  console.log('✅ Firebase token ready');
   
   const results = [];
   for (const [provider, cfg] of Object.entries(SEARCH_CFG)) {
@@ -123,11 +122,11 @@ export async function generateImage(prompt) {
 const MODELS = ['qwen/qwen-coder-32b','openai/gpt-5-mini','deepseek/deepseek-chat','grok/grok-4-fast','qwen/qwen3-32b','google/gemini-2.5-flash-lite'];
 
 export async function chatWithModels(query) {
-  if(!config.extraAccessToken) throw new Error('EXTRA_ACCESS_TOKEN missing');
+  if(!process.env.EXTRA_ACCESS_TOKEN) throw new Error('EXTRA_ACCESS_TOKEN missing');
   const results = [];
   const headers = {
     'User-Agent':'okhttp/4.12.0', 'Accept':'text/event-stream', 'Content-Type':'application/json',
-    'x-app-id':'ai-seek', 'x-access-token':config.extraAccessToken,
+    'x-app-id':'ai-seek', 'x-access-token':process.env.EXTRA_ACCESS_TOKEN,
     'x-device-info':'appIdentifier=ai.chatbot.ask.chat.deep.seek.assistant.search.free;appVersion=2.7.1-26042486;deviceType=android;deviceCountry=EG;local=ar_EG;brand=POCO;model=2311DRK48G'
   };
   const sessionId = '019def83-b582-7410-95dd-b747cc648582';
