@@ -7,6 +7,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.join(__dirname, '.env') });
 
+// قراءة المفتاح مباشرة من process.env
+const FIREBASE_KEY = process.env.FIREBASE_KEY || 'AIzaSyA27E7jUV8osRY7NzwP2fZwGoTkp5gJhZw';
+
 export const config = {
   apiId: parseInt(process.env.API_ID, 10),
   apiHash: process.env.API_HASH,
@@ -19,12 +22,12 @@ export const config = {
   chunkSize: parseInt(process.env.CHUNK_SIZE, 10) || 1000,
   dashboardPassword: process.env.DASHBOARD_PASSWORD || 'admin123',
   port: parseInt(process.env.PORT, 10) || 3000,
-  firebaseKey: process.env.FIREBASE_KEY || 'AIzaSyA27E7jUV8osRY7NzwP2fZwGoTkp5gJhZw',
+  firebaseKey: FIREBASE_KEY,
   extraAccessToken: process.env.EXTRA_ACCESS_TOKEN || '',
   nodeEnv: process.env.NODE_ENV || 'development',
 };
 
-console.log('✅ Firebase Key loaded:', config.firebaseKey ? 'Yes' : 'No');
+console.log('✅ FIREBASE_KEY from env:', config.firebaseKey ? 'Present (length: ' + config.firebaseKey.length + ')' : 'MISSING!');
 
 export function validateEnv() {
   const required = ['apiId', 'apiHash', 'phone', 'mongoUri'];

@@ -6,24 +6,34 @@ import * as cheerio from 'cheerio';
 import fs from 'fs-extra';
 import path from 'path';
 
-console.log('🔑 Firebase Key from config:', config.firebaseKey ? 'Present' : 'Missing');
+console.log('🔑 extra.js - FIREBASE_KEY from config:', config.firebaseKey ? 'Present' : 'MISSING');
 
 // ===== 1. البحث المتعدد =====
 let firebaseToken = null, tokenExpiry = 0;
 async function getFirebaseToken() {
   if (firebaseToken && Date.now() < tokenExpiry-60000) return firebaseToken;
+  
+  // استخدام المفتاح من config مباشرة
   const key = config.firebaseKey;
-  if (!key) throw new Error('FIREBASE_KEY is missing in config');
+  if (!key) {
+    console.error('❌ FIREBASE_KEY is missing in config!');
+    throw new Error('FIREBASE_KEY is missing in config');
+  }
+  
   console.log('🔄 Getting Firebase token with key:', key.substring(0, 10) + '...');
+  
   const resp = await axios.post(
     'https://www.googleapis.com/identitytoolkit/v3/relyingparty/signupNewUser',
     { clientType: 'CLIENT_TYPE_ANDROID' },
-    { params: { key: key }, headers: {
-      'User-Agent':'Dalvik/2.1.0 (Linux; U; Android 16; 2311DRK48G)',
-      'Content-Type':'application/json',
-      'X-Android-Package':'com.lmtechstudio.aimultisearch',
-      'X-Android-Cert':'5D08264B44E0E53FBCCC70B4F016474CC6C5AB5C'
-    }}
+    { 
+      params: { key: key },
+      headers: {
+        'User-Agent':'Dalvik/2.1.0 (Linux; U; Android 16; 2311DRK48G)',
+        'Content-Type':'application/json',
+        'X-Android-Package':'com.lmtechstudio.aimultisearch',
+        'X-Android-Cert':'5D08264B44E0E53FBCCC70B4F016474CC6C5AB5C'
+      }
+    }
   );
   const data = resp.data;
   firebaseToken = 'Bearer '+data.idToken;
@@ -41,19 +51,31 @@ const SEARCH_CFG = {
 };
 
 export async function multiSearch(query) {
+  console.log('🔍 multiSearch called with query:', query.substring(0, 30) + '...');
   const token = await getFirebaseToken();
+  console.log('✅ Firebase token obtained');
+  
   const results = [];
   for (const [provider, cfg] of Object.entries(SEARCH_CFG)) {
     const payload = { provider, prompt: query, plan:'ULTRA', app_version:cfg.app_version };
     try {
       const resp = await axios.post('https://ai-multi-search-backend-321697147922.europe-west6.run.app/ask', payload, {
-        headers: { 'authorization':token, 'x-plan':'ULTRA', 'x-app-version':cfg.app_version, 'x-search-id':cfg.search_id, 'content-type':'application/json' },
+        headers: { 
+          'authorization':token, 
+          'x-plan':'ULTRA', 
+          'x-app-version':cfg.app_version, 
+          'x-search-id':cfg.search_id, 
+          'content-type':'application/json' 
+        },
         timeout:30000
       });
       const data = resp.data;
       results.push({ provider, answer: data.ok ? data.answer : null, error: data.ok ? null : data.message });
-    } catch(e) { results.push({ provider, answer:null, error:e.message }); }
+    } catch(e) { 
+      results.push({ provider, answer:null, error:e.message }); 
+    }
   }
+  console.log('✅ multiSearch completed with', results.length, 'results');
   return results;
 }
 
