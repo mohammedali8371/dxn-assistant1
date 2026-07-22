@@ -26,7 +26,7 @@ console.log('✅ PHONE:', PHONE);
 import { logger } from './logger.js';
 import extra from './extra.js';
 
-// ذاكرة مؤقتة بسيطة (بدون قاعدة بيانات)
+// ذاكرة مؤقتة (بدون قاعدة بيانات)
 const usersCache = new Map();
 const messagesCache = new Map();
 
@@ -49,11 +49,6 @@ function addMessage(userId, chatId, role, content) {
   const msgs = messagesCache.get(key);
   msgs.push({ role, content, timestamp: new Date() });
   if (msgs.length > 20) msgs.shift();
-}
-
-function getContext(userId, chatId) {
-  const key = `${userId}_${chatId}`;
-  return (messagesCache.get(key) || []).slice(-20);
 }
 
 const SESSION_DIR = path.join(process.cwd(), 'sessions');
