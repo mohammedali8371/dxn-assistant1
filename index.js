@@ -5,8 +5,7 @@ import { createServer } from 'http';
 import express from 'express';
 import mongoose from 'mongoose';
 import { logger } from './logger.js';
-import { initTelegram } from './telegram.js';
-import { watchKnowledge } from './telegram.js';
+import { initTelegram, watchKnowledge } from './telegram.js';
 import { initCache } from './utils.js';
 import { validateEnv } from './config.js';
 
@@ -23,8 +22,8 @@ async function initDatabase() {
     });
     logger.info('✅ MongoDB connected');
   } catch (error) {
-    logger.error(`❌ DB: ${error.message}`);
-    // لا نخرج من العملية، نستمر بدون قاعدة بيانات
+    logger.error(`❌ DB connection failed: ${error.message}`);
+    console.log('⚠️ Continuing without database');
   }
 }
 
@@ -38,24 +37,22 @@ async function initApp() {
 
     app.get('/', (req, res) => res.send('DXN Assistant is running!'));
     app.listen(PORT, '0.0.0.0', () => {
-      logger.info(`🌐 Dashboard: http://localhost:${PORT}`);
+      console.log(`🌐 Dashboard: http://localhost:${PORT}`);
     });
 
-    process.on('SIGINT', () => { logger.info('🛑 Shutting down...'); process.exit(0); });
-    process.on('SIGTERM', () => { logger.info('🛑 Shutting down...'); process.exit(0); });
+    process.on('SIGINT', () => { console.log('🛑 Shutting down...'); process.exit(0); });
+    process.on('SIGTERM', () => { console.log('🛑 Shutting down...'); process.exit(0); });
   } catch (error) {
-    logger.error(`❌ Startup failed: ${error.message}`);
-    console.error(error.stack);
+    console.error('❌ Startup failed:', error);
     process.exit(1);
   }
 }
 
-// معالجة الاستثناءات غير المعالجة
 process.on('uncaughtException', (err) => {
   console.error('Uncaught Exception:', err);
 });
 process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  console.error('Unhandled Rejection:', reason);
 });
 
 initApp();

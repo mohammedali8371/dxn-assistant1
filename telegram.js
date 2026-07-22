@@ -25,8 +25,7 @@ console.log('✅ PHONE:', PHONE);
 
 import { logger } from './logger.js';
 import { User, Knowledge, connectDB, getContext, addMessage } from './database.js';
-import { chunkText, cleanText, isDXNRelated, ensureDir, listFiles } from './utils.js';
-import { getSystemPrompt } from './config.js';
+import { chunkText, cleanText, ensureDir, listFiles } from './utils.js';
 import pdfParse from 'pdf-parse';
 import mammoth from 'mammoth';
 import xlsx from 'xlsx';
@@ -94,29 +93,8 @@ let client = null;
 
 export async function initTelegram() {
   try {
-    // محاولة قراءة الجلسة من عدة مصادر
-    let sessionString = process.env.SESSION_STRING || '';
-    
-    // 1. من ملف session.txt في الجذر (الملف المرفوع مع المستودع)
-    const rootSessionPath = path.join(process.cwd(), 'session.txt');
-    if (!sessionString && await fs.pathExists(rootSessionPath)) {
-      sessionString = await fs.readFile(rootSessionPath, 'utf-8');
-      console.log('✅ Using session from root session.txt');
-    }
-    
-    // 2. من ملف sessions/session.txt (المجلد المحلي)
-    if (!sessionString) {
-      const localSessionPath = path.join(SESSION_DIR, 'session.txt');
-      if (await fs.pathExists(localSessionPath)) {
-        sessionString = await fs.readFile(localSessionPath, 'utf-8');
-        console.log('✅ Using session from sessions/session.txt');
-      }
-    }
-    
-    if (!sessionString) {
-      console.log('⚠️ No session found, will request code');
-    }
-
+    const sessionString = process.env.SESSION_STRING || '';
+    if (!sessionString) console.log('⚠️ No SESSION_STRING, will request code');
     const session = new StringSession(sessionString);
     client = new TelegramClient(session, API_ID, API_HASH, { connectionRetries:5, useWSS:true });
     await client.start({
@@ -125,11 +103,9 @@ export async function initTelegram() {
       phoneCode: async()=>{ logger.info('📱 Code sent'); return await input.text('Code: '); },
       onError: (e)=>{ logger.error('Start error: '+e.message); throw e; }
     });
-    
-    // حفظ الجلسة في المجلد المحلي
     await fs.writeFile(path.join(SESSION_DIR, 'session.txt'), client.session.save());
     const me = await client.getMe();
-    logger.info(`👤 Logged as ${me.firstName}`);
+    logger.info(`👤 Logged as ${me.firstName} (${me.id})`);
     setupListener();
     return client;
   } catch(e) { logger.errorWithContext('Telegram init failed', e); throw e; }
@@ -139,11 +115,16 @@ function setupListener() {
   if(!client) throw new Error('No client');
   client.addEventHandler(async (event) => {
     try {
-      if(!event.message || event.message.fromId?.isBot) return;
+      if(!event.message) return;
+      if(event.message.fromId?.isBot) return;
+      console.log(`📩 Received message from ${event.message.chatId}: ${event.message.text || 'media'}`);
       await messageHandler(event, client);
-    } catch(e) { logger.errorWithContext('Handler error', e); }
+    } catch(e) {
+      console.error('Handler error:', e);
+      logger.errorWithContext('Handler error', e);
+    }
   });
-  logger.info('👂 Listening');
+  logger.info('👂 Listening for messages...');
 }
 
 export function getClient() { if(!client) throw new Error('Client not ready'); return client; }
@@ -152,34 +133,54 @@ export async function replyMsg(chatId, replyTo, text, opts={}) { return getClien
 export async function sendTyping(chatId) { try { await getClient().sendMessage(chatId, { action:'typing' }); } catch(e){} }
 
 async function messageHandler(event, client) {
-  const msg = event.message;
-  const chatId = msg.chatId;
-  const userId = msg.fromId?.userId || chatId;
-  const msgId = msg.id;
+  try {
+    const msg = event.message;
+    const chatId = msg.chatId;
+    const userId = msg.fromId?.userId || chatId;
+    const msgId = msg.id;
 
-  let user = await User.findOne({ telegramId: userId });
-  if (!user) {
-    user = new User({ telegramId: userId, username: msg.from?.username||'', firstName: msg.from?.firstName||'', lastName: msg.from?.lastName||'' });
-    await user.save();
+    console.log(`📝 Processing message from ${userId} in chat ${chatId}`);
+
+    // تأكد من اتصال قاعدة البيانات
+    let user = await User.findOne({ telegramId: userId });
+    if (!user) {
+      user = new User({
+        telegramId: userId,
+        username: msg.from?.username || '',
+        firstName: msg.from?.firstName || '',
+        lastName: msg.from?.lastName || ''
+      });
+      await user.save();
+      console.log(`👤 New user created: ${userId}`);
+    }
+
+    let text = msg.text || '';
+    if (!text) {
+      if (msg.media) text = 'وسائط';
+      else if (msg.forwardedFrom) text = 'رسالة معاد توجيهها';
+      else {
+        await replyMsg(chatId, msgId, 'نوع الرسالة غير مدعوم');
+        return;
+      }
+    }
+
+    await addMessage(user._id, chatId, 'user', text);
+
+    if (text.startsWith('/')) {
+      await handleCommand(text, chatId, msgId, user._id);
+      return;
+    }
+
+    const reply = 'مرحباً! أنا مساعد DXN. استخدم الأوامر:\n/search, /image, /models, /voice';
+    await addMessage(user._id, chatId, 'assistant', reply);
+    await replyMsg(chatId, msgId, reply);
+    console.log(`✅ Replied to ${userId}`);
+  } catch (error) {
+    console.error('Error in messageHandler:', error);
+    try {
+      await replyMsg(chatId, msgId, 'حدث خطأ، حاول مرة أخرى');
+    } catch(e) {}
   }
-
-  let text = msg.text || '';
-  if (!text) {
-    if (msg.media) text = 'وسائط';
-    else if (msg.forwardedFrom) text = 'رسالة معاد توجيهها';
-    else return replyMsg(chatId, msgId, 'نوع غير مدعوم');
-  }
-
-  await addMessage(user._id, chatId, 'user', text);
-
-  if (text.startsWith('/')) {
-    await handleCommand(text, chatId, msgId, user._id);
-    return;
-  }
-
-  const reply = 'مرحباً! أنا مساعد DXN. استخدم الأوامر:\n/search, /image, /models, /voice';
-  await addMessage(user._id, chatId, 'assistant', reply);
-  await replyMsg(chatId, msgId, reply);
 }
 
 async function handleCommand(text, chatId, msgId, userId) {
