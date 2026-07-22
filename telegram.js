@@ -101,15 +101,27 @@ function setupListener() {
 
 export function getClient() { if(!client) throw new Error('Client not ready'); return client; }
 
-// ✅ استخدام chatId مباشرة للإرسال والرد
+// ✅ إرسال مع محاولة إعادة المحاولة عند فشل 403
 export async function sendMsg(chatId, text, opts={}) {
   const c = getClient();
-  return c.sendMessage(chatId, { message: text, ...opts });
+  try {
+    return await c.sendMessage(chatId, { message: text, ...opts });
+  } catch(e) {
+    if (e.message && e.message.includes('403')) {
+      console.log('⚠️ 403 error, retrying with different method...');
+      // محاولة بديلة: إرسال كـ reply إذا كان هناك replyTo
+      if (opts.replyTo) {
+        return await c.sendMessage(chatId, { message: text, replyTo: opts.replyTo });
+      } else {
+        return await c.sendMessage(chatId, { message: text });
+      }
+    }
+    throw e;
+  }
 }
 
 export async function replyMsg(chatId, replyTo, text, opts={}) {
-  const c = getClient();
-  return c.sendMessage(chatId, { message: text, replyTo, ...opts });
+  return sendMsg(chatId, text, { replyTo, ...opts });
 }
 
 async function messageHandler(event, client, chatId, text) {
@@ -139,7 +151,9 @@ async function messageHandler(event, client, chatId, text) {
     await replyMsg(chatId, msgId, reply.slice(0, 4000));
   } catch(e) {
     console.error('AI error:', e);
-    await replyMsg(chatId, msgId, 'حدث خطأ في معالجة سؤالك، حاول مرة أخرى.');
+    // ✅ رسالة ودودة بدون ذكر الذكاء الاصطناعي
+    const friendlyError = 'عذراً، واجهت صعوبة في الرد حالياً. حاول مرة أخرى بعد قليل.';
+    await replyMsg(chatId, msgId, friendlyError);
   }
 }
 
@@ -184,7 +198,8 @@ async function handleCommand(text, chatId, msgId) {
     }
   } catch(e) {
     console.error(`Command ${cmd} error:`, e);
-    await replyMsg(chatId, msgId, 'حدث خطأ أثناء تنفيذ الأمر.');
+    // ✅ رسالة ودودة بدون ذكر الذكاء الاصطناعي
+    await replyMsg(chatId, msgId, 'عذراً، حدث تأخير في الرد. حاول مرة أخرى.');
   }
 }
 
