@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: dxn-assistant1
+    env: node
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: API_ID
+        value: 10576791
+      - key: API_HASH
+        value: 6fcc05f1581fb6ec95ea99d39fa3a14a
+      - key: PHONE
+        value: +967770256885
+      - key: MONGO_URI
+        value: mongodb+srv://mohammed770256885ali_db_user:r0nrLsof6O2IzkmN@mrowanz.ncw3zjv.mongodb.net/?appName=mrowanz
+      - key: SESSION_STRING
+        value: 1BAAOMTQ5LjE1NC4xNjcuOTEBu08jNpsKTvZWOH1lio8U7u2+0wxGdDzvrEMqFcERPYk4ww8S45QlIoyi5Wy+uHVsx2sexxEw3tQwR5fu/s+GLViDuvFzQft5GPvRLqViwSJs42PjWebHz6Vfx03QYDkDRrzDhisH7t0CSdZq23d5jpDHa5j24TF5oxBg5onxkcb4fvBXGlhSQLEnZO3j8zdYDif7jvfG+Iqnvl7jNEVvROMNWo0hLB0OSKAmctL/xnR9kjmlHpn2jfyoxOUODBPPOpS0CL2D5shTfAcGcOLCC0sHGw/DezohFoboEdlFoReV4G9FKMkX5gvSVaQLRc4zJPuXXL+TsUcheUwqEYWiHHE=
+      - key: FIREBASE_KEY
+        value: AIzaSyA27E7jUV8osRY7NzwP2fZwGoTkp5gJhZw
+      - key: EXTRA_ACCESS_TOKEN
+        value: eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJBUy1YNkNZUiIsImF1ZCI6ImFpLXNlZWsiLCJwcm92aWRlciI6InV1aWQiLCJpc3MiOiJhaS1zZWVrIiwiZXhwIjoyMDkzMTk5ODY1LCJpYXQiOjE3Nzc4Mzk4NjV9.w2wlNLg2S-om4xqWmakO2tEUjiPjxtGwFozmoI217VUu7KGC1O3qaL7KdyEIBYrGxIZV3lMWospZPPgVOYJjOeDgKBFnhg1_7NRKfmCEum_0moUEqH6dGFtQUQixDi63k63wv6GhOs1Sorj6hLzdBxX6NHU6otOo6brls5UNYbc
+      - key: ASSISTANT_NAME
+        value: مساعد DXN
+      - key: DASHBOARD_PASSWORD
+        value: admin123
+      - key: PORT
+        value: 10000
