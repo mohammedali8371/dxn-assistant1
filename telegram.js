@@ -57,19 +57,25 @@ function setupListener() {
       if (!event || !event.message) return;
       if (event.message.fromId?.isBot) return;
 
-      let chatId = null;
-      if (event.message.peerId) {
-        chatId = event.message.peerId.userId || 
+      // استخراج userId الصحيح للإرسال
+      let userId = null;
+      if (event.message.fromId) {
+        userId = event.message.fromId.userId;
+      } else if (event.message.peerId) {
+        userId = event.message.peerId.userId || 
                  event.message.peerId.chatId || 
                  event.message.peerId.channelId;
       }
-      if (!chatId && event.message.chatId) chatId = event.message.chatId;
-      if (!chatId && event.message.fromId) chatId = event.message.fromId.userId;
-      if (!chatId && event.message.chat) chatId = event.message.chat.id;
 
-      if (!chatId) return;
-      if (chatId < 0) {
-        console.log(`⏭️ Skipping group ${chatId}`);
+      if (!userId) {
+        console.log('❌ Could not extract userId');
+        return;
+      }
+
+      // تحويل userId إلى رقم
+      const chatId = Number(userId);
+      if (isNaN(chatId) || chatId < 0) {
+        console.log(`⏭️ Invalid chatId: ${chatId}`);
         return;
       }
 
@@ -101,32 +107,34 @@ function setupListener() {
 
 export function getClient() { if(!client) throw new Error('Client not ready'); return client; }
 
-// ✅ إرسال مع محاولة إعادة المحاولة عند فشل 403 واستخدام طرق بديلة
+// ✅ إرسال مباشر باستخدام userId الصحيح
 export async function sendMsg(chatId, text, opts={}) {
   const c = getClient();
   try {
+    // محاولة الإرسال مباشرة باستخدام chatId
     return await c.sendMessage(chatId, { message: text, ...opts });
   } catch(e) {
     const errMsg = e.message || '';
-    if (errMsg.includes('403') || errMsg.includes('CHAT_ADMIN_REQUIRED') || errMsg.includes('PEER_ID_INVALID')) {
-      console.log('⚠️ 403/peer error, retrying with alternative method...');
-      // محاولة بديلة: إرسال بدون replyTo إذا كان موجوداً
-      const newOpts = { ...opts };
-      delete newOpts.replyTo;
+    console.log(`⚠️ Send error: ${errMsg.substring(0, 100)}`);
+    
+    // محاولة بديلة: استخدام getInputEntity
+    try {
+      const entity = await c.getInputEntity(chatId);
+      return await c.sendMessage(entity, { message: text, ...opts });
+    } catch(e2) {
+      console.error('Alternative send failed:', e2.message);
+      
+      // المحاولة الثالثة: إرسال بدون replyTo
       try {
-        return await c.sendMessage(chatId, { message: text, ...newOpts });
-      } catch(e2) {
-        console.error('Alternative send failed:', e2.message);
-        // المحاولة الثالثة: إرسال مباشر بدون أي خيارات إضافية
-        try {
-          return await c.sendMessage(chatId, { message: text });
-        } catch(e3) {
-          console.error('All send attempts failed:', e3.message);
-          throw e3;
-        }
+        const newOpts = { ...opts };
+        delete newOpts.replyTo;
+        const entity2 = await c.getInputEntity(chatId);
+        return await c.sendMessage(entity2, { message: text, ...newOpts });
+      } catch(e3) {
+        console.error('All send attempts failed:', e3.message);
+        throw e3;
       }
     }
-    throw e;
   }
 }
 
