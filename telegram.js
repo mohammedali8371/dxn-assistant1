@@ -57,8 +57,25 @@ function setupListener() {
       if(!event.message) return;
       if(event.message.fromId?.isBot) return;
 
-      const chatId = event.message.chatId;
-      
+      // استخراج chatId بشكل صحيح
+      let chatId = event.message.chatId;
+      if (!chatId) {
+        // محاولة بديلة
+        if (event.message.peerId) {
+          chatId = event.message.peerId.chatId || 
+                   event.message.peerId.userId || 
+                   event.message.peerId.channelId;
+        }
+        if (!chatId && event.message.chat) {
+          chatId = event.message.chat.id;
+        }
+      }
+
+      if (!chatId) {
+        console.log('❌ Could not extract chatId from message');
+        return;
+      }
+
       // ✅ فقط الخاص (chatId موجب)
       if (chatId < 0) {
         console.log(`⏭️ Skipping group ${chatId}`);
@@ -66,7 +83,7 @@ function setupListener() {
       }
 
       console.log(`📩 Private chat from ${chatId}`);
-      await messageHandler(event, client);
+      await messageHandler(event, client, chatId);
     } catch(e) {
       console.error('Handler error:', e);
     }
@@ -78,9 +95,8 @@ export function getClient() { if(!client) throw new Error('Client not ready'); r
 export async function sendMsg(chatId, text, opts={}) { return getClient().sendMessage(chatId, { message:text, ...opts }); }
 export async function replyMsg(chatId, replyTo, text, opts={}) { return getClient().sendMessage(chatId, { message:text, replyTo, ...opts }); }
 
-async function messageHandler(event, client) {
+async function messageHandler(event, client, chatId) {
   const msg = event.message;
-  const chatId = msg.chatId;
   const userId = msg.fromId?.userId || chatId;
   const msgId = msg.id;
 
@@ -97,18 +113,17 @@ async function messageHandler(event, client) {
     return;
   }
 
-  // رد ذكي تلقائي (استخدام البحث المتعدد)
+  // رد ذكي تلقائي
   try {
     await sendTyping(chatId);
     const results = await extra.multiSearch(text);
-    // اختيار أول رد غير فارغ
     let reply = '🔍 نتائج البحث:\n';
     let found = false;
     for (const r of results) {
       if (r.answer) {
         reply += `\n*${r.provider}*: ${r.answer.substring(0, 800)}`;
         found = true;
-        break; // نأخذ أول رد فقط
+        break;
       }
     }
     if (!found) {
