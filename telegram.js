@@ -24,71 +24,40 @@ console.log('✅ API_HASH:', API_HASH);
 console.log('✅ PHONE:', PHONE);
 
 import { logger } from './logger.js';
-import { User, Knowledge, connectDB, getContext, addMessage } from './database.js';
-import { chunkText, cleanText, ensureDir, listFiles } from './utils.js';
-import pdfParse from 'pdf-parse';
-import mammoth from 'mammoth';
-import xlsx from 'xlsx';
-import chokidar from 'chokidar';
 import extra from './extra.js';
 
-const KNOWLEDGE_DIR = path.join(process.cwd(), 'knowledge');
-const SUPPORTED = ['.pdf','.docx','.txt','.xlsx'];
-ensureDir(KNOWLEDGE_DIR);
+// ذاكرة مؤقتة بسيطة (بدون قاعدة بيانات)
+const usersCache = new Map();
+const messagesCache = new Map();
 
-async function extractText(filePath) {
-  const ext = path.extname(filePath).toLowerCase();
-  const buf = await fs.readFile(filePath);
-  switch(ext) {
-    case '.pdf': return (await pdfParse(buf)).text;
-    case '.docx': return (await mammoth.extractRawText({ buffer:buf })).value;
-    case '.txt': return buf.toString('utf-8');
-    case '.xlsx': {
-      const wb = xlsx.read(buf, { type:'buffer' });
-      const sheet = wb.Sheets[wb.SheetNames[0]];
-      const json = xlsx.utils.sheet_to_json(sheet);
-      return json.map(r=>Object.values(r).join(' ')).join('\n');
-    }
-    default: throw new Error(`Unsupported: ${ext}`);
+function getUser(telegramId) {
+  if (!usersCache.has(telegramId)) {
+    usersCache.set(telegramId, { 
+      _id: telegramId, 
+      telegramId, 
+      username: '', 
+      firstName: '', 
+      lastName: ''
+    });
   }
+  return usersCache.get(telegramId);
 }
 
-export async function processKnowledgeFile(filePath) {
-  const name = path.basename(filePath);
-  await Knowledge.deleteMany({ sourceFile: name });
-  const full = cleanText(await extractText(filePath));
-  if(!full.trim()) return 0;
-  const chunks = chunkText(full, 1000);
-  if(!chunks.length) return 0;
-  const docs = chunks.map((c,i) => ({ content:c, embedding:[], sourceFile:name, fileType:path.extname(filePath).replace('.',''), chunkIndex:i, totalChunks:chunks.length }));
-  await Knowledge.insertMany(docs);
-  logger.info(`✅ ${docs.length} chunks for ${name}`);
-  return docs.length;
+function addMessage(userId, chatId, role, content) {
+  const key = `${userId}_${chatId}`;
+  if (!messagesCache.has(key)) messagesCache.set(key, []);
+  const msgs = messagesCache.get(key);
+  msgs.push({ role, content, timestamp: new Date() });
+  if (msgs.length > 20) msgs.shift();
 }
 
-export async function rebuildKnowledge() {
-  await Knowledge.deleteMany({});
-  const files = await listFiles(KNOWLEDGE_DIR);
-  let total=0;
-  for(const f of files) { if(SUPPORTED.includes(path.extname(f).toLowerCase())) total += await processKnowledgeFile(f); }
-  logger.info(`✅ Knowledge rebuilt: ${total} chunks`);
-  return total;
-}
-
-export function watchKnowledge() {
-  const watcher = chokidar.watch(KNOWLEDGE_DIR, { ignored:/[\/\\]\./, persistent:true, ignoreInitial:true });
-  watcher.on('add', async f => { try{ await processKnowledgeFile(f); } catch(e){ logger.errorWithContext('Watch add error',e); } });
-  watcher.on('unlink', async f => { const name=path.basename(f); await Knowledge.deleteMany({ sourceFile:name }); logger.info(`🗑️ Removed ${name}`); });
-  logger.info('👀 Watching knowledge');
-  return watcher;
-}
-
-export async function getKnowledgeStats() {
-  return { totalChunks: await Knowledge.countDocuments(), totalFiles: (await Knowledge.distinct('sourceFile')).length };
+function getContext(userId, chatId) {
+  const key = `${userId}_${chatId}`;
+  return (messagesCache.get(key) || []).slice(-20);
 }
 
 const SESSION_DIR = path.join(process.cwd(), 'sessions');
-ensureDir(SESSION_DIR);
+fs.ensureDirSync(SESSION_DIR);
 let client = null;
 
 export async function initTelegram() {
@@ -117,70 +86,43 @@ function setupListener() {
     try {
       if(!event.message) return;
       if(event.message.fromId?.isBot) return;
-      console.log(`📩 Received message from ${event.message.chatId}: ${event.message.text || 'media'}`);
+      console.log(`📩 Received from ${event.message.chatId}`);
       await messageHandler(event, client);
     } catch(e) {
       console.error('Handler error:', e);
-      logger.errorWithContext('Handler error', e);
     }
   });
-  logger.info('👂 Listening for messages...');
+  logger.info('👂 Listening');
 }
 
 export function getClient() { if(!client) throw new Error('Client not ready'); return client; }
 export async function sendMsg(chatId, text, opts={}) { return getClient().sendMessage(chatId, { message:text, ...opts }); }
 export async function replyMsg(chatId, replyTo, text, opts={}) { return getClient().sendMessage(chatId, { message:text, replyTo, ...opts }); }
-export async function sendTyping(chatId) { try { await getClient().sendMessage(chatId, { action:'typing' }); } catch(e){} }
 
 async function messageHandler(event, client) {
-  try {
-    const msg = event.message;
-    const chatId = msg.chatId;
-    const userId = msg.fromId?.userId || chatId;
-    const msgId = msg.id;
+  const msg = event.message;
+  const chatId = msg.chatId;
+  const userId = msg.fromId?.userId || chatId;
+  const msgId = msg.id;
 
-    console.log(`📝 Processing message from ${userId} in chat ${chatId}`);
-
-    // تأكد من اتصال قاعدة البيانات
-    let user = await User.findOne({ telegramId: userId });
-    if (!user) {
-      user = new User({
-        telegramId: userId,
-        username: msg.from?.username || '',
-        firstName: msg.from?.firstName || '',
-        lastName: msg.from?.lastName || ''
-      });
-      await user.save();
-      console.log(`👤 New user created: ${userId}`);
-    }
-
-    let text = msg.text || '';
-    if (!text) {
-      if (msg.media) text = 'وسائط';
-      else if (msg.forwardedFrom) text = 'رسالة معاد توجيهها';
-      else {
-        await replyMsg(chatId, msgId, 'نوع الرسالة غير مدعوم');
-        return;
-      }
-    }
-
-    await addMessage(user._id, chatId, 'user', text);
-
-    if (text.startsWith('/')) {
-      await handleCommand(text, chatId, msgId, user._id);
-      return;
-    }
-
-    const reply = 'مرحباً! أنا مساعد DXN. استخدم الأوامر:\n/search, /image, /models, /voice';
-    await addMessage(user._id, chatId, 'assistant', reply);
-    await replyMsg(chatId, msgId, reply);
-    console.log(`✅ Replied to ${userId}`);
-  } catch (error) {
-    console.error('Error in messageHandler:', error);
-    try {
-      await replyMsg(chatId, msgId, 'حدث خطأ، حاول مرة أخرى');
-    } catch(e) {}
+  let text = msg.text || '';
+  if (!text) {
+    if (msg.media) text = 'وسائط';
+    else if (msg.forwardedFrom) text = 'رسالة معاد توجيهها';
+    else return replyMsg(chatId, msgId, 'نوع غير مدعوم');
   }
+
+  getUser(userId);
+  addMessage(userId, chatId, 'user', text);
+
+  if (text.startsWith('/')) {
+    await handleCommand(text, chatId, msgId, userId);
+    return;
+  }
+
+  const reply = 'مرحباً! أنا مساعد DXN. استخدم الأوامر:\n/search, /image, /models, /voice';
+  addMessage(userId, chatId, 'assistant', reply);
+  await replyMsg(chatId, msgId, reply);
 }
 
 async function handleCommand(text, chatId, msgId, userId) {
@@ -223,4 +165,4 @@ async function handleCommand(text, chatId, msgId, userId) {
   }
 }
 
-export default { initTelegram, getClient, sendMsg, replyMsg, sendTyping, processKnowledgeFile, rebuildKnowledge, watchKnowledge, getKnowledgeStats };
+export default { initTelegram, getClient, sendMsg, replyMsg };
