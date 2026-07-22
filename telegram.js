@@ -26,7 +26,7 @@ console.log('✅ PHONE:', PHONE);
 import { logger } from './logger.js';
 import extra from './extra.js';
 
-// ذاكرة مؤقتة بدون قاعدة بيانات
+// ذاكرة مؤقتة
 const usersCache = new Map();
 const messagesCache = new Map();
 
@@ -68,13 +68,31 @@ function setupListener() {
     try {
       if(!event.message) return;
       if(event.message.fromId?.isBot) return;
-      console.log(`📩 Received from ${event.message.chatId}`);
+      
+      // تجاهل الرسائل من المجموعات التي ليس البوت مشرفاً فيها
+      const chatId = event.message.chatId;
+      if (chatId < 0) { // مجموعة (رقم سالب)
+        try {
+          const chat = await client.getChat(chatId);
+          const me = await client.getMe();
+          // التحقق من صلاحيات البوت في المجموعة
+          if (!chat.adminRights && !chat.creator) {
+            console.log(`⏭️ Skipping group ${chatId} (bot is not admin)`);
+            return;
+          }
+        } catch(e) {
+          console.log(`⏭️ Cannot check group ${chatId}, skipping`);
+          return;
+        }
+      }
+      
+      console.log(`📩 Received from ${chatId}`);
       await messageHandler(event, client);
     } catch(e) {
       console.error('Handler error:', e);
     }
   });
-  logger.info('👂 Listening');
+  logger.info('👂 Listening (only private chats and groups where bot is admin)');
 }
 
 export function getClient() { if(!client) throw new Error('Client not ready'); return client; }
@@ -91,7 +109,7 @@ async function messageHandler(event, client) {
   if (!text) {
     if (msg.media) text = 'وسائط';
     else if (msg.forwardedFrom) text = 'رسالة معاد توجيهها';
-    else return replyMsg(chatId, msgId, 'نوع غير مدعوم');
+    else return;
   }
 
   addMessage(userId, chatId, 'user', text);
@@ -103,7 +121,11 @@ async function messageHandler(event, client) {
 
   const reply = 'مرحباً! أنا مساعد DXN. استخدم الأوامر:\n/search, /image, /models, /voice';
   addMessage(userId, chatId, 'assistant', reply);
-  await replyMsg(chatId, msgId, reply);
+  try {
+    await replyMsg(chatId, msgId, reply);
+  } catch(e) {
+    console.error('Reply error:', e.message);
+  }
 }
 
 async function handleCommand(text, chatId, msgId, userId) {
