@@ -6,14 +6,19 @@ import * as cheerio from 'cheerio';
 import fs from 'fs-extra';
 import path from 'path';
 
+console.log('🔑 Firebase Key from config:', config.firebaseKey ? 'Present' : 'Missing');
+
 // ===== 1. البحث المتعدد =====
 let firebaseToken = null, tokenExpiry = 0;
 async function getFirebaseToken() {
   if (firebaseToken && Date.now() < tokenExpiry-60000) return firebaseToken;
+  const key = config.firebaseKey;
+  if (!key) throw new Error('FIREBASE_KEY is missing in config');
+  console.log('🔄 Getting Firebase token with key:', key.substring(0, 10) + '...');
   const resp = await axios.post(
     'https://www.googleapis.com/identitytoolkit/v3/relyingparty/signupNewUser',
     { clientType: 'CLIENT_TYPE_ANDROID' },
-    { params: { key: config.firebaseKey }, headers: {
+    { params: { key: key }, headers: {
       'User-Agent':'Dalvik/2.1.0 (Linux; U; Android 16; 2311DRK48G)',
       'Content-Type':'application/json',
       'X-Android-Package':'com.lmtechstudio.aimultisearch',
