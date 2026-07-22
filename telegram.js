@@ -3,7 +3,26 @@ import { StringSession } from 'telegram/sessions/index.js';
 import input from 'input';
 import fs from 'fs-extra';
 import path from 'path';
-import config from './config.js';
+import dotenv from 'dotenv';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+dotenv.config({ path: path.join(__dirname, '.env') });
+
+const API_ID = parseInt(process.env.API_ID, 10);
+const API_HASH = process.env.API_HASH;
+const PHONE = process.env.PHONE;
+
+if (!API_ID || !API_HASH || !PHONE) {
+  console.error('❌ API_ID, API_HASH, PHONE must be set in .env');
+  process.exit(1);
+}
+
+console.log('✅ API_ID:', API_ID);
+console.log('✅ API_HASH:', API_HASH);
+console.log('✅ PHONE:', PHONE);
+
 import { logger } from './logger.js';
 import { User, Knowledge, connectDB, getContext, addMessage } from './database.js';
 import { chunkText, cleanText, isDXNRelated, ensureDir, listFiles } from './utils.js';
@@ -14,7 +33,6 @@ import xlsx from 'xlsx';
 import chokidar from 'chokidar';
 import extra from './extra.js';
 
-// ===== المعرفة (بدون OpenAI) =====
 const KNOWLEDGE_DIR = path.join(process.cwd(), 'knowledge');
 const SUPPORTED = ['.pdf','.docx','.txt','.xlsx'];
 ensureDir(KNOWLEDGE_DIR);
@@ -41,9 +59,8 @@ export async function processKnowledgeFile(filePath) {
   await Knowledge.deleteMany({ sourceFile: name });
   const full = cleanText(await extractText(filePath));
   if(!full.trim()) return 0;
-  const chunks = chunkText(full, config.chunkSize);
+  const chunks = chunkText(full, 1000);
   if(!chunks.length) return 0;
-  // بدون تضمين (بدون OpenAI)
   const docs = chunks.map((c,i) => ({ content:c, embedding:[], sourceFile:name, fileType:path.extname(filePath).replace('.',''), chunkIndex:i, totalChunks:chunks.length }));
   await Knowledge.insertMany(docs);
   logger.info(`✅ ${docs.length} chunks for ${name}`);
@@ -71,25 +88,46 @@ export async function getKnowledgeStats() {
   return { totalChunks: await Knowledge.countDocuments(), totalFiles: (await Knowledge.distinct('sourceFile')).length };
 }
 
-// ===== Telegram =====
 const SESSION_DIR = path.join(process.cwd(), 'sessions');
 ensureDir(SESSION_DIR);
 let client = null;
-const sessionPath = path.join(SESSION_DIR, 'session.txt');
 
 export async function initTelegram() {
   try {
-    let str = '';
-    if(await fs.pathExists(sessionPath)) str = await fs.readFile(sessionPath,'utf-8');
-    const session = new StringSession(str);
-    client = new TelegramClient(session, config.apiId, config.apiHash, { connectionRetries:5, useWSS:true });
+    // محاولة قراءة الجلسة من عدة مصادر
+    let sessionString = process.env.SESSION_STRING || '';
+    
+    // 1. من ملف session.txt في الجذر (الملف المرفوع مع المستودع)
+    const rootSessionPath = path.join(process.cwd(), 'session.txt');
+    if (!sessionString && await fs.pathExists(rootSessionPath)) {
+      sessionString = await fs.readFile(rootSessionPath, 'utf-8');
+      console.log('✅ Using session from root session.txt');
+    }
+    
+    // 2. من ملف sessions/session.txt (المجلد المحلي)
+    if (!sessionString) {
+      const localSessionPath = path.join(SESSION_DIR, 'session.txt');
+      if (await fs.pathExists(localSessionPath)) {
+        sessionString = await fs.readFile(localSessionPath, 'utf-8');
+        console.log('✅ Using session from sessions/session.txt');
+      }
+    }
+    
+    if (!sessionString) {
+      console.log('⚠️ No session found, will request code');
+    }
+
+    const session = new StringSession(sessionString);
+    client = new TelegramClient(session, API_ID, API_HASH, { connectionRetries:5, useWSS:true });
     await client.start({
-      phoneNumber: async()=>config.phone,
+      phoneNumber: async()=>PHONE,
       password: async()=>{ logger.info('🔐 2FA'); return await input.text('Password: '); },
       phoneCode: async()=>{ logger.info('📱 Code sent'); return await input.text('Code: '); },
       onError: (e)=>{ logger.error('Start error: '+e.message); throw e; }
     });
-    await fs.writeFile(sessionPath, client.session.save());
+    
+    // حفظ الجلسة في المجلد المحلي
+    await fs.writeFile(path.join(SESSION_DIR, 'session.txt'), client.session.save());
     const me = await client.getMe();
     logger.info(`👤 Logged as ${me.firstName}`);
     setupListener();
@@ -113,7 +151,6 @@ export async function sendMsg(chatId, text, opts={}) { return getClient().sendMe
 export async function replyMsg(chatId, replyTo, text, opts={}) { return getClient().sendMessage(chatId, { message:text, replyTo, ...opts }); }
 export async function sendTyping(chatId) { try { await getClient().sendMessage(chatId, { action:'typing' }); } catch(e){} }
 
-// ===== معالج الرسائل (بدون OpenAI) =====
 async function messageHandler(event, client) {
   const msg = event.message;
   const chatId = msg.chatId;
@@ -135,14 +172,12 @@ async function messageHandler(event, client) {
 
   await addMessage(user._id, chatId, 'user', text);
 
-  // الأوامر
   if (text.startsWith('/')) {
     await handleCommand(text, chatId, msgId, user._id);
     return;
   }
 
-  // ردود عادية (بدون ذكاء اصطناعي)
-  const reply = 'مرحباً! أنا مساعد DXN. استخدم الأوامر التالية:\n/search, /image, /models, /voice';
+  const reply = 'مرحباً! أنا مساعد DXN. استخدم الأوامر:\n/search, /image, /models, /voice';
   await addMessage(user._id, chatId, 'assistant', reply);
   await replyMsg(chatId, msgId, reply);
 }
