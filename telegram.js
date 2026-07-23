@@ -25,7 +25,6 @@ console.log('✅ PHONE:', PHONE);
 
 import { logger } from './logger.js';
 import extra from './extra.js';
-import { isDXNRelated } from './utils.js';
 
 const SESSION_DIR = path.join(process.cwd(), 'sessions');
 fs.ensureDirSync(SESSION_DIR);
@@ -112,19 +111,15 @@ export function getClient() { if(!client) throw new Error('Client not ready'); r
 export async function sendMsg(chatId, text, opts={}) {
   const c = getClient();
   try {
-    let entity;
-    try {
-      entity = await c.getInputEntity(chatId);
-    } catch(e) {
-      entity = await c.getInputEntity(Number(chatId));
-    }
-    return await c.sendMessage(entity, { message: text, ...opts });
+    return await c.sendMessage(chatId, { message: text, ...opts });
   } catch(e) {
-    console.log(`⚠️ Send error: ${e.message.substring(0, 100)}`);
+    console.log(`⚠️ Send error: ${e.message.substring(0, 80)}`);
     try {
-      return await c.sendMessage(chatId, { message: text, ...opts });
+      let entity;
+      try { entity = await c.getInputEntity(chatId); } catch(ee) { entity = await c.getInputEntity(String(chatId)); }
+      return await c.sendMessage(entity, { message: text, ...opts });
     } catch(e2) {
-      console.error('All send attempts failed:', e2.message);
+      console.error('❌ All send attempts failed:', e2.message);
       throw e2;
     }
   }
@@ -140,34 +135,26 @@ async function messageHandler(event, client, chatId, text) {
     return;
   }
 
-  // ✅ التحقق مما إذا كان السؤال متعلقاً بـ DXN
-  if (!isDXNRelated(text)) {
-    console.log('⏭️ Question not related to DXN, skipping AI reply');
-    const reply = 'أعتذر، اختصاصي يقتصر على المعلومات المتوفرة لدي حول DXN.';
-    await sendMsg(chatId, reply);
-    return;
-  }
-
+  // ✅ إزالة التصفية: الرد على جميع الأسئلة كإنسان
   try {
     await sendTyping(chatId);
     const results = await extra.multiSearch(text);
-    let reply = '🔍 نتائج البحث:\n';
+    let reply = '';
     let found = false;
     for (const r of results) {
       if (r.answer) {
-        reply += `\n*${r.provider}*: ${r.answer.substring(0, 800)}`;
+        reply = r.answer;
         found = true;
         break;
       }
     }
     if (!found) {
-      reply = 'المعلومة هذه غير موجودة عندي حالياً.';
+      reply = 'والله ما عندي معلومة عن هالشي حالياً، بس لو حاب تسأل عن DXN أنا موجود 😊';
     }
     await sendMsg(chatId, reply.slice(0, 4000));
   } catch(e) {
     console.error('AI error:', e);
-    const friendlyError = 'عذراً، واجهت صعوبة في الرد حالياً. حاول مرة أخرى بعد قليل.';
-    await sendMsg(chatId, friendlyError);
+    await sendMsg(chatId, 'عذراً، واجهت صعوبة في الرد حالياً. حاول مرة أخرى بعد قليل.');
   }
 }
 
