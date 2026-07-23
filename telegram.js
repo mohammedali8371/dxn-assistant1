@@ -72,6 +72,7 @@ function setupListener() {
         return;
       }
 
+      // ✅ فقط الخاص (chatId موجب)
       if (chatId < 0) {
         console.log(`⏭️ Skipping group/channel ${chatId}`);
         return;
@@ -135,10 +136,13 @@ async function messageHandler(event, client, chatId, text) {
     return;
   }
 
-  // ✅ إزالة التصفية: الرد على جميع الأسئلة كإنسان
   try {
     await sendTyping(chatId);
-    const results = await extra.multiSearch(text);
+    
+    // ✅ إضافة تعليمات للرد باللغة العربية الفصحى
+    const queryWithStyle = `أجب باللغة العربية الفصحى الواضحة، وبأسلوب مهذب ومحترم، واجعل ردك مفيداً ومختصراً. السؤال: ${text}`;
+    
+    const results = await extra.multiSearch(queryWithStyle);
     let reply = '';
     let found = false;
     for (const r of results) {
@@ -149,12 +153,12 @@ async function messageHandler(event, client, chatId, text) {
       }
     }
     if (!found) {
-      reply = 'والله ما عندي معلومة عن هالشي حالياً، بس لو حاب تسأل عن DXN أنا موجود 😊';
+      reply = 'لم أتمكن من العثور على إجابة مناسبة لسؤالك حالياً. هل يمكنك إعادة صياغة السؤال؟';
     }
     await sendMsg(chatId, reply.slice(0, 4000));
   } catch(e) {
     console.error('AI error:', e);
-    await sendMsg(chatId, 'عذراً، واجهت صعوبة في الرد حالياً. حاول مرة أخرى بعد قليل.');
+    await sendMsg(chatId, 'عذراً، حدث خلل مؤقت في النظام. حاول مجدداً بعد قليل.');
   }
 }
 
@@ -199,7 +203,7 @@ async function handleCommand(text, chatId) {
     }
   } catch(e) {
     console.error(`Command ${cmd} error:`, e);
-    await sendMsg(chatId, 'عذراً، حدث تأخير في الرد. حاول مرة أخرى.');
+    await sendMsg(chatId, 'حدث خطأ أثناء تنفيذ الأمر، حاول مرة أخرى.');
   }
 }
 
