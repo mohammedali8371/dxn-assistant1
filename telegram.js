@@ -57,26 +57,21 @@ function setupListener() {
       if (!event || !event.message) return;
       if (event.message.fromId?.isBot) return;
 
-      // ✅ استخراج chatId من عدة مصادر مع الأولوية للـ chatId المباشر
       let chatId = null;
-      if (event.message.chatId) {
-        chatId = event.message.chatId;
-      } else if (event.message.peerId) {
+      if (event.message.peerId) {
         chatId = event.message.peerId.userId || 
                  event.message.peerId.chatId || 
                  event.message.peerId.channelId;
-      } else if (event.message.fromId) {
-        chatId = event.message.fromId.userId;
-      } else if (event.message.chat) {
-        chatId = event.message.chat.id;
       }
+      if (!chatId && event.message.chatId) chatId = event.message.chatId;
+      if (!chatId && event.message.fromId) chatId = event.message.fromId.userId;
+      if (!chatId && event.message.chat) chatId = event.message.chat.id;
 
       if (!chatId) {
         console.log('❌ Could not extract chatId');
         return;
       }
 
-      // تأكد من أن chatId رقم موجب (خاص)
       if (chatId < 0) {
         console.log(`⏭️ Skipping group/channel ${chatId}`);
         return;
@@ -113,31 +108,20 @@ function setupListener() {
 
 export function getClient() { if(!client) throw new Error('Client not ready'); return client; }
 
-// ✅ إرسال آمن باستخدام chatId المباشر + Peer من الحدث
+// ✅ طريقة إرسال بسيطة وآمنة باستخدام chatId مباشرة
 export async function sendMsg(chatId, text, opts={}) {
   const c = getClient();
   try {
-    // المحاولة الأولى: إرسال مباشر باستخدام chatId كرقم
-    return await c.sendMessage(Number(chatId), { message: text, ...opts });
+    return await c.sendMessage(chatId, { message: text, ...opts });
   } catch(e) {
-    console.log(`⚠️ Direct send (Number) failed: ${e.message.substring(0, 80)}`);
+    console.log(`⚠️ Send error (direct): ${e.message.substring(0, 80)}`);
     try {
-      // المحاولة الثانية: استخدام getInputEntity
-      const entity = await c.getInputEntity(Number(chatId));
+      // محاولة بديلة باستخدام getInputEntity
+      const entity = await c.getInputEntity(chatId);
       return await c.sendMessage(entity, { message: text, ...opts });
     } catch(e2) {
-      console.log(`⚠️ getInputEntity failed: ${e2.message.substring(0, 80)}`);
-      try {
-        // المحاولة الثالثة: إرسال باستخدام peer المستخرج من الحدث إذا كان متاحاً
-        if (global._lastEvent && global._lastEvent.message && global._lastEvent.message.peerId) {
-          const peer = global._lastEvent.message.peerId;
-          return await c.sendMessage(peer, { message: text, ...opts });
-        }
-        throw new Error('No fallback method available');
-      } catch(e3) {
-        console.error('❌ All send attempts failed:', e3.message);
-        return null;
-      }
+      console.error('❌ All send attempts failed:', e2.message);
+      return null;
     }
   }
 }
@@ -146,12 +130,7 @@ export async function replyMsg(chatId, replyTo, text, opts={}) {
   return sendMsg(chatId, text, opts);
 }
 
-// ✅ تخزين آخر حدث للاستخدام في الإرسال الاحتياطي
-let lastEvent = null;
-
 async function messageHandler(event, client, chatId, text) {
-  global._lastEvent = event; // تخزين الحدث للاستخدام في sendMsg
-
   if (text.startsWith('/')) {
     await handleCommand(text, chatId);
     return;
@@ -229,7 +208,7 @@ async function handleCommand(text, chatId) {
 
 async function sendTyping(chatId) {
   try {
-    await client.sendMessage(Number(chatId), { action: 'typing' });
+    await client.sendMessage(chatId, { action: 'typing' });
   } catch(e) {}
 }
 
