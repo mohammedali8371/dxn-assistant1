@@ -72,7 +72,6 @@ function setupListener() {
         return;
       }
 
-      // ✅ فقط الخاص (chatId موجب)
       if (chatId < 0) {
         console.log(`⏭️ Skipping group/channel ${chatId}`);
         return;
@@ -109,19 +108,22 @@ function setupListener() {
 
 export function getClient() { if(!client) throw new Error('Client not ready'); return client; }
 
+// ✅ طريقة إرسال آمنة تماماً باستخدام رقم المحادثة مباشرة
 export async function sendMsg(chatId, text, opts={}) {
   const c = getClient();
   try {
-    return await c.sendMessage(chatId, { message: text, ...opts });
+    // المحاولة الأولى: الإرسال المباشر باستخدام رقم المحادثة
+    return await c.sendMessage(Number(chatId), { message: text, ...opts });
   } catch(e) {
-    console.log(`⚠️ Send error: ${e.message.substring(0, 80)}`);
+    console.log(`⚠️ Direct send failed: ${e.message.substring(0, 80)}`);
     try {
-      let entity;
-      try { entity = await c.getInputEntity(chatId); } catch(ee) { entity = await c.getInputEntity(String(chatId)); }
+      // المحاولة الثانية: استخدام الكيان المحصل عليه من getInputEntity
+      const entity = await c.getInputEntity(Number(chatId));
       return await c.sendMessage(entity, { message: text, ...opts });
     } catch(e2) {
       console.error('❌ All send attempts failed:', e2.message);
-      throw e2;
+      // لا نرمي الخطأ، نكتفي بالتسجيل
+      return null;
     }
   }
 }
@@ -139,7 +141,6 @@ async function messageHandler(event, client, chatId, text) {
   try {
     await sendTyping(chatId);
     
-    // ✅ إضافة تعليمات للرد باللغة العربية الفصحى
     const queryWithStyle = `أجب باللغة العربية الفصحى الواضحة، وبأسلوب مهذب ومحترم، واجعل ردك مفيداً ومختصراً. السؤال: ${text}`;
     
     const results = await extra.multiSearch(queryWithStyle);
@@ -209,7 +210,7 @@ async function handleCommand(text, chatId) {
 
 async function sendTyping(chatId) {
   try {
-    await client.sendMessage(chatId, { action: 'typing' });
+    await client.sendMessage(Number(chatId), { action: 'typing' });
   } catch(e) {}
 }
 
