@@ -8,3 +8,5 @@ temp/
 *.wav
 *.jpg
 *.png
+*.db
+.DS_Store

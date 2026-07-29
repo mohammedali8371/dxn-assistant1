@@ -7,8 +7,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.join(__dirname, '.env') });
 
-// المفتاح مضمن في الكود مباشرةً لتجنب مشاكل قراءة المتغيرات
-const FIREBASE_KEY = 'AIzaSyA27E7jUV8osRY7NzwP2fZwGoTkp5gJhZw';
+console.log('📌 config.js: FIREBASE_KEY =', process.env.FIREBASE_KEY ? 'موجود' : 'مفقود');
+console.log('📌 config.js: EXTRA_ACCESS_TOKEN =', process.env.EXTRA_ACCESS_TOKEN ? 'موجود' : 'مفقود');
 
 export const config = {
   apiId: parseInt(process.env.API_ID, 10),
@@ -22,28 +22,20 @@ export const config = {
   chunkSize: parseInt(process.env.CHUNK_SIZE, 10) || 1000,
   dashboardPassword: process.env.DASHBOARD_PASSWORD || 'admin123',
   port: parseInt(process.env.PORT, 10) || 3000,
-  firebaseKey: FIREBASE_KEY,
-  extraAccessToken: process.env.EXTRA_ACCESS_TOKEN || '',
+  firebaseKey: process.env.FIREBASE_KEY,
+  extraAccessToken: process.env.EXTRA_ACCESS_TOKEN,
   nodeEnv: process.env.NODE_ENV || 'development',
 };
 
-console.log('✅ FIREBASE_KEY loaded (length):', config.firebaseKey.length);
-
 export function validateEnv() {
-  const required = ['apiId', 'apiHash', 'phone'];
+  const required = ['apiId', 'apiHash', 'phone', 'firebaseKey', 'extraAccessToken'];
   const missing = required.filter(key => !config[key]);
   if (missing.length) throw new Error('Missing env: ' + missing.join(', '));
   return true;
 }
 
 export function getSystemPrompt() {
-  return "أنت مساعد ذكي متخصص في منتجات وخدمات DXN. اسمك " + config.assistantName + ".\n" +
-    "- تتحدث باللهجة اليمنية، ودود، محترم.\n" +
-    "- لا تذكر أنك ذكاء اصطناعي إلا إذا سُئلت.\n" +
-    "- إذا لم تجد المعلومة: 'المعلومة هذه غير موجودة عندي حالياً.'\n" +
-    "- إذا كان السؤال خارج DXN: 'أعتذر، اختصاصي يقتصر على المعلومات المتوفرة لدي حول DXN.'\n" +
-    "- استخدم السياق (آخر 20 رسالة) للرد.\n" +
-    "DXN: شركة ماليزية متخصصة في المنتجات الصحية (ريشي، سبيرولينا، فيتامينات).";
+  return "أنت مساعد ذكي متخصص في منتجات وخدمات DXN.";
 }
 
 export function generateId() { return randomUUID(); }
