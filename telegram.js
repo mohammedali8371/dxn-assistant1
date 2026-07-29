@@ -33,14 +33,16 @@ let client = null;
 const entityCache = new Map();
 
 const TELEGRAM_OPTIONS = {
-  connectionRetries: 4,
+  connectionRetries: 2,
   useWSS: true,
   dc: 1,
-  timeout: 12,
+  timeout: 5,
 };
 
+// ✅ أسماء الملفات بالضبط كما هي في المجلد
 const PDF_FILES = {
   products: 'كتالوج المنتجات مع الفوائد.pdf',
+  products_alt: 'ملف المنتجات روعة .pdf',
   financial: 'DXN الخط المالية لشركة .pdf',
   marketing: 'الخطة التسويقية 2026.pdf',
   intro: 'البرنامج التعريفي الشامل ل DXN.pdf',
@@ -103,24 +105,28 @@ function formatReply(text) {
 }
 
 async function sendPDF(userId, fileKey, caption, replyToMsgId = null) {
-  const pdfDir = path.join(process.cwd(), "knowledge", "pdfs");
+  const pdfDir = path.join(process.cwd(), 'knowledge', 'pdfs');
   const fileName = PDF_FILES[fileKey];
-  if (!fileName) { console.log("⚠️ مفتاح الملف غير صحيح: " + fileKey); return false; }
+  if (!fileName) {
+    console.log('⚠️ مفتاح الملف غير صحيح:', fileKey);
+    return false;
+  }
   const filePath = path.join(pdfDir, fileName);
-  console.log("📄 محاولة إرسال الملف: " + fileName + " من المسار: " + filePath);
+  console.log('📄 محاولة إرسال الملف:', fileName);
+  console.log('📂 المسار الكامل:', filePath);
   if (!await fs.pathExists(filePath)) {
-    console.log("⚠️ الملف غير موجود: " + filePath);
+    console.log('❌ الملف غير موجود في المسار:', filePath);
     return false;
   }
   try {
     const entity = await getCachedEntity(userId);
-    const options = { file: filePath, caption: caption || "📄 " + fileName };
+    const options = { file: filePath, caption: caption || '📄 ' + fileName };
     if (replyToMsgId) options.replyTo = replyToMsgId;
     await client.sendMessage(entity, options);
-    console.log("✅ تم إرسال الملف: " + fileName);
+    console.log('✅ تم إرسال الملف:', fileName);
     return true;
   } catch (e) {
-    console.error("❌ فشل إرسال الملف " + fileName + ":", e.message);
+    console.error('❌ فشل إرسال الملف:', e.message);
     return false;
   }
 }
@@ -172,7 +178,7 @@ async function sendLongMessage(userId, text, replyToMsgId = null) {
     if (part) finalParts.push(part);
   }
 
-  console.log(`📨 إرسال ${finalParts.length} جزء (إجمالي ${text.length} حرف)`);
+  console.log('📨 إرسال', finalParts.length, 'جزء (إجمالي', text.length, 'حرف)');
   let sent = false;
   for (let i = 0; i < finalParts.length; i++) {
     const part = finalParts[i];
@@ -182,13 +188,13 @@ async function sendLongMessage(userId, text, replyToMsgId = null) {
       const options = { message: part, parse_mode: 'Markdown' };
       if (isFirst && replyToMsgId) options.replyTo = replyToMsgId;
       await client.sendMessage(entity, options);
-      console.log(`✅ تم إرسال الجزء ${i+1}/${finalParts.length}`);
+      console.log('✅ تم إرسال الجزء', i+1, '/', finalParts.length);
       sent = true;
     } catch (e) {
-      console.error(`❌ فشل إرسال الجزء ${i+1}:`, e.message);
+      console.error('❌ فشل إرسال الجزء', i+1, ':', e.message);
     }
     if (i < finalParts.length - 1) {
-      console.log(`⏳ انتظار 40 ثانية قبل إرسال الجزء التالي...`);
+      console.log('⏳ انتظار 40 ثانية قبل إرسال الجزء التالي...');
       await new Promise(resolve => setTimeout(resolve, 40000));
     }
   }
@@ -204,7 +210,6 @@ function normalizeText(text) {
   return normalized.trim().toLowerCase();
 }
 
-// ===== التحية والتشجيع (رسالتان منفصلتان) =====
 function isGreeting(text) {
   const greetings = ['السلام عليكم', 'سلام', 'مرحبا', 'أهلا', 'هلا', 'الو', 'هلو', 'صباح الخير', 'مساء الخير', 'يا هلا', 'هاي', 'كيفك', 'كيف حالك', 'كيف الحال', 'اخبارك', 'شو اخبارك', 'شحالك', 'وشحالك'];
   const normalized = normalizeText(text);
@@ -266,21 +271,25 @@ function setLastReply(userId, reply) {
   lastReplyCache.set(userId, reply);
 }
 
+// ===== كشف طلب الملفات =====
 function detectPDFRequest(text) {
   const lower = text.toLowerCase();
-  if (lower.includes("منتج") || lower.includes("كتالوج") || lower.includes("المنتجات") || lower.includes("روعة")) {
-    return { key: "products", topic: "المنتجات" };
+  if (lower.includes('منتج') || lower.includes('كتالوج') || lower.includes('المنتجات') || lower.includes('روعة')) {
+    return { key: 'products', topic: 'المنتجات' };
   }
-  if (lower.includes("خطة مالية") || lower.includes("الخطة المالية") || lower.includes("مالية") || lower.includes("أرباح") || lower.includes("عمولة") || lower.includes("دخل")) {
-    return { key: "financial", topic: "الخطة المالية" };
+  if (lower.includes('خطة مالية') || lower.includes('الخطة المالية') || lower.includes('مالية') || lower.includes('أرباح') || lower.includes('عمولة') || lower.includes('دخل')) {
+    return { key: 'financial', topic: 'الخطة المالية' };
   }
-  if (lower.includes("خطة تسويقية") || lower.includes("الخطة التسويقية") || lower.includes("تسويق") || lower.includes("استراتيجية")) {
-    return { key: "marketing", topic: "الخطة التسويقية" };
+  if (lower.includes('خطة تسويقية') || lower.includes('الخطة التسويقية') || lower.includes('تسويق') || lower.includes('استراتيجية')) {
+    return { key: 'marketing', topic: 'الخطة التسويقية' };
   }
-  const companyKeywords = ["تعريف", "الشركة", "دي اكس ان", "دي إكس ان", "dxn", "برنامج تعريفي", "عن dxn", "عن دي اكس ان", "ما هي dxn", "ما هو dxn", "ما هي دي اكس ان", "ما هو دي اكس ان", "ما هي شركة", "ما هو شركة", "تعرف", "تعرف على", "تعريف بالشركة", "نبذة عن", "معلومات عن"];
-  for (const kw of companyKeywords) { if (lower.includes(kw)) { return { key: "intro", topic: "شركة DXN" }; } }
+  const companyKeywords = ['تعريف', 'الشركة', 'دي اكس ان', 'دي إكس ان', 'dxn', 'برنامج تعريفي', 'عن dxn', 'عن دي اكس ان', 'ما هي dxn', 'ما هو dxn', 'ما هي دي اكس ان', 'ما هو دي اكس ان', 'ما هي شركة', 'ما هو شركة', 'تعرف', 'تعرف على', 'تعريف بالشركة', 'نبذة عن', 'معلومات عن'];
+  for (const kw of companyKeywords) {
+    if (lower.includes(kw)) {
+      return { key: 'intro', topic: 'شركة DXN' };
+    }
+  }
   return null;
-}
 }
 
 async function getFastReply(question, contextStr) {
@@ -291,7 +300,7 @@ async function getFastReply(question, contextStr) {
     for (const r of results) {
       if (r.answer && r.answer.trim().length > 0) {
         reply = r.answer;
-        console.log(`✅ Got reply from ${r.model}`);
+        console.log('✅ Got reply from', r.model);
         break;
       }
     }
@@ -335,8 +344,9 @@ async function getReply(userId, question, msgId) {
   const lastReply = getLastReply(userId);
 
   const pdfRequest = detectPDFRequest(question);
-  if (pdfRequest if (pdfRequest) {if (pdfRequest) { pdfRequest.key) {
-    console.log(`📄 تم الكشف عن طلب ملف: ${pdfRequest.topic}`);
+  if (pdfRequest) {
+    console.log('📄 تم الكشف عن طلب ملف:', pdfRequest.topic);
+    console.log('🔑 مفتاح الملف:', pdfRequest.key);
   }
 
   let reply = await getFastReply(question, contextStr);
@@ -347,7 +357,7 @@ async function getReply(userId, question, msgId) {
   reply = reply.replace(/وفقاً للمعلومات/gi, '');
   reply = reply.replace(/^مروان:\s*/gi, '');
 
-  if (pdfRequest if (pdfRequest) {if (pdfRequest) { pdfRequest.key) {
+  if (pdfRequest) {
     reply = reply + `\n\n📄 *سأرسل لك ملفاً يحتوي على تفاصيل أكثر عن ${pdfRequest.topic}. يمكنك الاطلاع عليه للمزيد.*`;
   }
 
@@ -362,9 +372,8 @@ async function getReply(userId, question, msgId) {
 
   await sendLongMessage(userId, reply, msgId);
 
-  if (pdfRequest if (pdfRequest) {if (pdfRequest) { pdfRequest.key) {
+  if (pdfRequest) {
     await sendPDF(userId, pdfRequest.key, `📄 ${pdfRequest.topic}`, msgId);
-      console.log("📄 تم إرسال الملف: " + pdfRequest.key);
   }
 
   setLastReply(userId, reply);
@@ -431,18 +440,15 @@ function setupListener() {
       addToMemory(userId, 'user', text);
 
       if (isGreeting(text)) {
-        // 1. إرسال رد التحية
         const greeting = getGreetingReply(text);
         console.log(`✅ Greeting reply: "${greeting}"`);
         addToMemory(userId, 'assistant', greeting);
         await sendLongMessage(userId, greeting, msg.id);
 
-        // 2. إرسال رسالة التشجيع
         const promptMsg = getPromptMessage();
         console.log(`✅ Prompt message: "${promptMsg}"`);
         addToMemory(userId, 'assistant', promptMsg);
-        await sendLongMessage(userId, promptMsg, null); // بدون replyTo
-
+        await sendLongMessage(userId, promptMsg, null);
         return;
       }
 
