@@ -103,26 +103,24 @@ function formatReply(text) {
 }
 
 async function sendPDF(userId, fileKey, caption, replyToMsgId = null) {
-  const pdfDir = path.join(process.cwd(), 'knowledge', 'pdfs');
+  const pdfDir = path.join(process.cwd(), "knowledge", "pdfs");
   const fileName = PDF_FILES[fileKey];
-  if (!fileName) {
-    console.log(`⚠️ مفتاح الملف غير صحيح: ${fileKey}`);
-    return false;
-  }
+  if (!fileName) { console.log("⚠️ مفتاح الملف غير صحيح: " + fileKey); return false; }
   const filePath = path.join(pdfDir, fileName);
+  console.log("📄 محاولة إرسال الملف: " + fileName + " من المسار: " + filePath);
   if (!await fs.pathExists(filePath)) {
-    console.log(`⚠️ الملف غير موجود: ${filePath}`);
+    console.log("⚠️ الملف غير موجود: " + filePath);
     return false;
   }
   try {
     const entity = await getCachedEntity(userId);
-    const options = { file: filePath, caption: caption || `📄 ${fileName}` };
+    const options = { file: filePath, caption: caption || "📄 " + fileName };
     if (replyToMsgId) options.replyTo = replyToMsgId;
     await client.sendMessage(entity, options);
-    console.log(`✅ تم إرسال الملف: ${fileName}`);
+    console.log("✅ تم إرسال الملف: " + fileName);
     return true;
   } catch (e) {
-    console.error(`❌ فشل إرسال الملف ${fileName}:`, e.message);
+    console.error("❌ فشل إرسال الملف " + fileName + ":", e.message);
     return false;
   }
 }
@@ -270,27 +268,19 @@ function setLastReply(userId, reply) {
 
 function detectPDFRequest(text) {
   const lower = text.toLowerCase();
-  if (lower.includes('منتج') || lower.includes('كتالوج') || lower.includes('المنتجات')) {
-    return { key: 'products', topic: 'المنتجات' };
+  if (lower.includes("منتج") || lower.includes("كتالوج") || lower.includes("المنتجات") || lower.includes("روعة")) {
+    return { key: "products", topic: "المنتجات" };
   }
-  if (lower.includes('خطة مالية') || lower.includes('الخطة المالية') || lower.includes('مالية') || lower.includes('أرباح') || lower.includes('عمولة') || lower.includes('دخل')) {
-    return { key: 'financial', topic: 'الخطة المالية' };
+  if (lower.includes("خطة مالية") || lower.includes("الخطة المالية") || lower.includes("مالية") || lower.includes("أرباح") || lower.includes("عمولة") || lower.includes("دخل")) {
+    return { key: "financial", topic: "الخطة المالية" };
   }
-  if (lower.includes('خطة تسويقية') || lower.includes('الخطة التسويقية') || lower.includes('تسويق') || lower.includes('استراتيجية')) {
-    return { key: 'marketing', topic: 'الخطة التسويقية' };
+  if (lower.includes("خطة تسويقية") || lower.includes("الخطة التسويقية") || lower.includes("تسويق") || lower.includes("استراتيجية")) {
+    return { key: "marketing", topic: "الخطة التسويقية" };
   }
-  const companyKeywords = [
-    'تعريف', 'الشركة', 'دي اكس ان', 'دي إكس ان', 'dxn', 'برنامج تعريفي',
-    'عن dxn', 'عن دي اكس ان', 'ما هي dxn', 'ما هو dxn',
-    'ما هي دي اكس ان', 'ما هو دي اكس ان', 'ما هي شركة', 'ما هو شركة',
-    'تعرف', 'تعرف على', 'تعريف بالشركة', 'نبذة عن', 'معلومات عن'
-  ];
-  for (const kw of companyKeywords) {
-    if (lower.includes(kw)) {
-      return { key: 'intro', topic: 'شركة DXN' };
-    }
-  }
+  const companyKeywords = ["تعريف", "الشركة", "دي اكس ان", "دي إكس ان", "dxn", "برنامج تعريفي", "عن dxn", "عن دي اكس ان", "ما هي dxn", "ما هو dxn", "ما هي دي اكس ان", "ما هو دي اكس ان", "ما هي شركة", "ما هو شركة", "تعرف", "تعرف على", "تعريف بالشركة", "نبذة عن", "معلومات عن"];
+  for (const kw of companyKeywords) { if (lower.includes(kw)) { return { key: "intro", topic: "شركة DXN" }; } }
   return null;
+}
 }
 
 async function getFastReply(question, contextStr) {
@@ -345,7 +335,7 @@ async function getReply(userId, question, msgId) {
   const lastReply = getLastReply(userId);
 
   const pdfRequest = detectPDFRequest(question);
-  if (pdfRequest) {
+  if (pdfRequest if (pdfRequest) {if (pdfRequest) { pdfRequest.key) {
     console.log(`📄 تم الكشف عن طلب ملف: ${pdfRequest.topic}`);
   }
 
@@ -357,7 +347,7 @@ async function getReply(userId, question, msgId) {
   reply = reply.replace(/وفقاً للمعلومات/gi, '');
   reply = reply.replace(/^مروان:\s*/gi, '');
 
-  if (pdfRequest) {
+  if (pdfRequest if (pdfRequest) {if (pdfRequest) { pdfRequest.key) {
     reply = reply + `\n\n📄 *سأرسل لك ملفاً يحتوي على تفاصيل أكثر عن ${pdfRequest.topic}. يمكنك الاطلاع عليه للمزيد.*`;
   }
 
@@ -372,8 +362,9 @@ async function getReply(userId, question, msgId) {
 
   await sendLongMessage(userId, reply, msgId);
 
-  if (pdfRequest) {
+  if (pdfRequest if (pdfRequest) {if (pdfRequest) { pdfRequest.key) {
     await sendPDF(userId, pdfRequest.key, `📄 ${pdfRequest.topic}`, msgId);
+      console.log("📄 تم إرسال الملف: " + pdfRequest.key);
   }
 
   setLastReply(userId, reply);
