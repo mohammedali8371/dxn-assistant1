@@ -41,16 +41,22 @@ function parsePriceTable(text) {
 }
 
 export async function loadPriceList() {
-  const txtPath = path.join(KNOWLEDGE_DIR, 'prices.txt');
-  if (await fs.pathExists(txtPath)) {
-    console.log('📄 جاري تحميل قائمة الأسعار من prices.txt...');
-    const text = await fs.readFile(txtPath, 'utf-8');
-    const products = parsePriceTable(text);
-    priceData = products;
-    console.log(`✅ تم تحميل ${products.length} منتج من prices.txt.`);
-    return products;
+  const possiblePaths = [
+    path.join(KNOWLEDGE_DIR, 'prices.txt'),
+    path.join(process.cwd(), 'knowledge', 'prices.txt'),
+    path.join(__dirname, '..', 'knowledge', 'prices.txt')
+  ];
+  for (const txtPath of possiblePaths) {
+    if (await fs.pathExists(txtPath)) {
+      console.log(`📄 جاري تحميل قائمة الأسعار من: ${txtPath}`);
+      const text = await fs.readFile(txtPath, 'utf-8');
+      const products = parsePriceTable(text);
+      priceData = products;
+      console.log(`✅ تم تحميل ${products.length} منتج من prices.txt.`);
+      return products;
+    }
   }
-  console.warn('⚠️ ملف prices.txt غير موجود في:', txtPath);
+  console.warn('⚠️ ملف prices.txt غير موجود في أي من المسارات المتوقعة.');
   return [];
 }
 
@@ -90,24 +96,28 @@ export function formatPriceReply(products, query) {
 }
 
 export async function sendPriceListPDF(userId, client) {
-  const filePath = path.join(KNOWLEDGE_DIR, 'pdfs', 'قائمة أسعار المنتجات 2026.pdf');
-  if (!await fs.pathExists(filePath)) {
-    console.warn('⚠️ ملف PDF غير موجود للإرسال');
-    return false;
+  const possiblePaths = [
+    path.join(KNOWLEDGE_DIR, 'pdfs', 'قائمة أسعار المنتجات 2026.pdf'),
+    path.join(process.cwd(), 'knowledge', 'pdfs', 'قائمة أسعار المنتجات 2026.pdf')
+  ];
+  for (const filePath of possiblePaths) {
+    if (await fs.pathExists(filePath)) {
+      try {
+        await client.sendMessage(userId, {
+          document: { file: filePath },
+          caption: '📄 *قائمة أسعار المنتجات 2026 (كاملة)*\nجميع المنتجات مع الأسعار والنقاط.'
+        });
+        return true;
+      } catch (e) {
+        console.error('❌ فشل إرسال ملف PDF:', e.message);
+        return false;
+      }
+    }
   }
-  try {
-    await client.sendMessage(userId, {
-      document: { file: filePath },
-      caption: '📄 *قائمة أسعار المنتجات 2026 (كاملة)*\nجميع المنتجات مع الأسعار والنقاط.'
-    });
-    return true;
-  } catch (e) {
-    console.error('❌ فشل إرسال ملف PDF:', e.message);
-    return false;
-  }
+  console.warn('⚠️ ملف PDF غير موجود للإرسال');
+  return false;
 }
 
-// ===== المعرفة العامة (للتوافق) =====
 let KNOWLEDGE_CACHE = null;
 
 export async function loadKnowledge() {
