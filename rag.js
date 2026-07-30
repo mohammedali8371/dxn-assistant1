@@ -166,3 +166,4 @@ export async function searchInFiles(query) {
 
 export default { loadKnowledge, searchInFiles, loadPriceList, searchPriceList, generatePriceText, sendPriceListPDF };
 // تحديث بسيط لإعادة النشر على Render
+
