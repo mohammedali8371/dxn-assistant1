@@ -16,20 +16,21 @@ function parsePriceTable(text) {
     if (line.includes('PERSONAL CARE') || line.includes('FOOD & PEVERAGE') || line.includes('HEALTH FOOD')) continue;
     if (line.trim().length < 20) continue;
 
+    // استخراج جميع الأرقام العشرية من السطر
     const numbers = line.match(/\d+\.\d+/g);
     if (!numbers || numbers.length < 3) continue;
 
-    const dp = parseFloat(numbers[0]);
-    const rp = parseFloat(numbers[1]);
-    const pv = parseFloat(numbers[2]);
+    // نأخذ آخر 3 أرقام (هي الأسعار والنقاط)
+    const dp = parseFloat(numbers[numbers.length - 3]);
+    const rp = parseFloat(numbers[numbers.length - 2]);
+    const pv = parseFloat(numbers[numbers.length - 1]);
     if (isNaN(dp) || isNaN(rp) || isNaN(pv)) continue;
 
-    const firstNumberIndex = line.search(/\d+\.\d+/);
-    let name = line.substring(0, firstNumberIndex).trim();
-    if (name.length < 3) {
-      const lastNumberIndex = line.lastIndexOf(numbers[numbers.length - 1]);
-      name = line.substring(0, lastNumberIndex).trim();
-    }
+    // استخراج اسم المنتج: النص قبل أول رقم من آخر 3 أرقام
+    const lastThreeStart = line.lastIndexOf(numbers[numbers.length - 3]);
+    let name = line.substring(0, lastThreeStart).trim();
+    // تنظيف الاسم من الأرقام التسلسلية في البداية (مثل "29 ")
+    name = name.replace(/^\d+\s*/, '').trim();
     if (name.length > 2) {
       products.push({ name, dp, rp, pv });
     }
