@@ -358,10 +358,13 @@ async function getReply(userId, question, msgId) {
   const lastReply = getLastReply(userId);
 
   const pdfRequest = detectPDFRequest(question);
-  if (pdfRequest) {
-    console.log('📄 تم الكشف عن طلب ملفات:', pdfRequest.topic);
-    console.log('🔑 المفاتيح:', pdfRequest.keys);
+if (pdfRequest) {
+  for (const key of pdfRequest.keys) {
+    const caption = pdfRequest.multi ? `📄 ${key === "price_list" ? "قائمة الأسعار" : "كتالوج المنتجات"}` : `📄 ${pdfRequest.topic}`;
+    console.log(`📤 إرسال الملف: ${key}`);
+    await sendPDF(userId, key, caption, msgId);
   }
+}
 
   let reply = await getFastReply(question, contextStr);
   reply = cleanText(reply);
@@ -371,11 +374,13 @@ async function getReply(userId, question, msgId) {
   reply = reply.replace(/وفقاً للمعلومات/gi, '');
   reply = reply.replace(/^مروان:\s*/gi, '');
 
-  if (pdfRequest) {
-    // رسالة خاصة عند طلب الأسعار/المنتجات (ملفين)
-    if (pdfRequest.multi) {
-      reply = reply + `\n\n📄 *سأرسل لك ملفين PDF يحتويان على الأسعار والفوائد وأنواع المنتجات. يمكنك الاطلاع عليهما للمزيد.*`;
-    } else {
+if (pdfRequest) {
+  for (const key of pdfRequest.keys) {
+    const caption = pdfRequest.multi ? `📄 ${key === "price_list" ? "قائمة الأسعار" : "كتالوج المنتجات"}` : `📄 ${pdfRequest.topic}`;
+    console.log(`📤 إرسال الملف: ${key}`);
+    await sendPDF(userId, key, caption, msgId);
+  }
+}
       reply = reply + `\n\n📄 *سأرسل لك ملفاً يحتوي على تفاصيل أكثر عن ${pdfRequest.topic}. يمكنك الاطلاع عليه للمزيد.*`;
     }
   }
@@ -392,9 +397,13 @@ async function getReply(userId, question, msgId) {
   await sendLongMessage(userId, reply, msgId);
 
   // إرسال الملفات المطلوبة
-  if (pdfRequest) {
-    for (const key of pdfRequest.keys) {
-      const caption = pdfRequest.multi ? `📄 ${key === 'price_list' ? 'قائمة الأسعار' : 'كتالوج المنتجات'}` : `📄 ${pdfRequest.topic}`;
+if (pdfRequest) {
+  for (const key of pdfRequest.keys) {
+    const caption = pdfRequest.multi ? `📄 ${key === "price_list" ? "قائمة الأسعار" : "كتالوج المنتجات"}` : `📄 ${pdfRequest.topic}`;
+    console.log(`📤 إرسال الملف: ${key}`);
+    await sendPDF(userId, key, caption, msgId);
+  }
+}
       await sendPDF(userId, key, caption, msgId);
     }
   }
