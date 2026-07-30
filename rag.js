@@ -11,56 +11,44 @@ let priceData = [];
 function parsePriceTable(text) {
   const lines = text.split('\n').filter(line => line.trim().length > 10);
   const products = [];
-  let currentProduct = null;
   for (const line of lines) {
     if (line.includes('سعر العضو') || line.includes('سعر غير العضو') || line.includes('عدد النقاط')) continue;
     if (line.includes('PERSONAL CARE') || line.includes('FOOD & PEVERAGE') || line.includes('HEALTH FOOD')) continue;
     if (line.trim().length < 20) continue;
-    // محاولة استخراج البيانات من السطر
-    const match = line.match(/^(.+?)\s+(\d+\.?\d*)\s+(\d+\.?\d*)\s+(\d+\.?\d*)/);
-    if (match) {
-      const name = match[1].trim();
-      const dp = parseFloat(match[2]);
-      const rp = parseFloat(match[3]);
-      const pv = parseFloat(match[4]);
-      if (!isNaN(dp) && !isNaN(rp) && !isNaN(pv) && name.length > 3) {
-        products.push({ name, dp, rp, pv });
-      }
-    } else {
-      // محاولة بديلة: البحث عن أرقام في السطر
-      const numbers = line.match(/\d+\.?\d*/g);
-      if (numbers && numbers.length >= 3) {
-        const name = line.replace(/\d+\.?\d*/g, '').trim();
-        const dp = parseFloat(numbers[0]);
-        const rp = parseFloat(numbers[1]);
-        const pv = parseFloat(numbers[2]);
-        if (!isNaN(dp) && !isNaN(rp) && !isNaN(pv) && name.length > 3) {
-          products.push({ name, dp, rp, pv });
-        }
-      }
+
+    const numbers = line.match(/\d+\.\d+/g);
+    if (!numbers || numbers.length < 3) continue;
+
+    const dp = parseFloat(numbers[0]);
+    const rp = parseFloat(numbers[1]);
+    const pv = parseFloat(numbers[2]);
+    if (isNaN(dp) || isNaN(rp) || isNaN(pv)) continue;
+
+    const firstNumberIndex = line.search(/\d+\.\d+/);
+    let name = line.substring(0, firstNumberIndex).trim();
+    if (name.length < 3) {
+      const lastNumberIndex = line.lastIndexOf(numbers[numbers.length - 1]);
+      name = line.substring(0, lastNumberIndex).trim();
+    }
+    if (name.length > 2) {
+      products.push({ name, dp, rp, pv });
     }
   }
   return products;
 }
 
 export async function loadPriceList() {
-  const possiblePaths = [
-    path.join(KNOWLEDGE_DIR, 'prices.txt'),
-    path.join(process.cwd(), 'knowledge', 'prices.txt'),
-    path.join(__dirname, '..', 'knowledge', 'prices.txt')
-  ];
-  for (const txtPath of possiblePaths) {
-    if (await fs.pathExists(txtPath)) {
-      console.log(`📄 جاري تحميل قائمة الأسعار من: ${txtPath}`);
-      const text = await fs.readFile(txtPath, 'utf-8');
-      const products = parsePriceTable(text);
-      priceData = products;
-      console.log(`✅ تم تحميل ${products.length} منتج من prices.txt.`);
-      return products;
-    }
+  const txtPath = path.join(KNOWLEDGE_DIR, 'prices.txt');
+  if (!await fs.pathExists(txtPath)) {
+    console.warn('⚠️ ملف prices.txt غير موجود');
+    return [];
   }
-  console.warn('⚠️ ملف prices.txt غير موجود في أي من المسارات المتوقعة.');
-  return [];
+  console.log('📄 جاري تحميل قائمة الأسعار من prices.txt...');
+  const text = await fs.readFile(txtPath, 'utf-8');
+  const products = parsePriceTable(text);
+  priceData = products;
+  console.log(`✅ تم تحميل ${products.length} منتج من prices.txt.`);
+  return products;
 }
 
 export function searchPriceList(query) {
@@ -94,38 +82,31 @@ export function formatPriceReply(products, query) {
   if (!isSuggestion) {
     reply += `📌 *تم عرض ${products.length} منتج من أصل ${priceData.length} منتج.*\n`;
   }
-  reply += `\n📄 *للحصول على القائمة الكاملة، سأرسل لك ملف PDF يحتوي على جميع المنتجات والأسعار.*`;
+  reply += `\n📎 *سأرسل لك الملف الآن لتطلع على القائمة الكاملة.*`;
   return reply;
 }
 
 export async function sendPriceListPDF(userId, client) {
-  const possiblePaths = [
-    path.join(KNOWLEDGE_DIR, 'pdfs', 'قائمة أسعار المنتجات 2026.pdf'),
-    path.join(process.cwd(), 'knowledge', 'pdfs', 'قائمة أسعار المنتجات 2026.pdf')
-  ];
-  for (const filePath of possiblePaths) {
-    if (await fs.pathExists(filePath)) {
-      try {
-        await client.sendMessage(userId, {
-          document: { file: filePath },
-          caption: '📄 *قائمة أسعار المنتجات 2026 (كاملة)*\nجميع المنتجات مع الأسعار والنقاط.'
-        });
-        return true;
-      } catch (e) {
-        console.error('❌ فشل إرسال ملف PDF:', e.message);
-        return false;
-      }
-    }
+  const pdfPath = path.join(KNOWLEDGE_DIR, 'pdfs', 'قائمة أسعار المنتجات 2026.pdf');
+  if (!await fs.pathExists(pdfPath)) {
+    console.warn('⚠️ ملف PDF غير موجود للإرسال');
+    return false;
   }
-  console.warn('⚠️ ملف PDF غير موجود للإرسال');
-  return false;
+  try {
+    await client.sendMessage(userId, {
+      document: { file: pdfPath },
+      caption: '📄 *قائمة أسعار المنتجات 2026 (كاملة)*\nجميع المنتجات مع الأسعار والنقاط.'
+    });
+    return true;
+  } catch (e) {
+    console.error('❌ فشل إرسال ملف PDF:', e.message);
+    return false;
+  }
 }
 
 let KNOWLEDGE_CACHE = null;
-
 export async function loadKnowledge() {
   if (KNOWLEDGE_CACHE) return KNOWLEDGE_CACHE;
-  console.log('📚 جاري تحميل المعرفة العامة...');
   let allText = '';
   const mainFiles = await fs.readdir(KNOWLEDGE_DIR).catch(() => []);
   for (const file of mainFiles) {
@@ -135,10 +116,8 @@ export async function loadKnowledge() {
     }
   }
   KNOWLEDGE_CACHE = allText;
-  console.log(`✅ تم تحميل ${KNOWLEDGE_CACHE.length} حرف من المعرفة العامة.`);
   return KNOWLEDGE_CACHE;
 }
-
 export async function searchInFiles(query) {
   const allText = await loadKnowledge();
   if (!allText || allText.length < 50) return { answer: null, context: null };
@@ -147,9 +126,7 @@ export async function searchInFiles(query) {
   const scored = paragraphs.map(p => {
     let score = 0;
     const lower = p.toLowerCase();
-    for (const kw of keywords) {
-      if (lower.includes(kw.toLowerCase())) score += 5;
-    }
+    for (const kw of keywords) if (lower.includes(kw.toLowerCase())) score += 5;
     if (lower.includes(query.toLowerCase())) score += 20;
     return { content: p.trim(), score };
   });
