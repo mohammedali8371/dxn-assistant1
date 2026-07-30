@@ -1,12 +1,12 @@
 import fs from 'fs-extra';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { createCanvas } from 'canvas';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const KNOWLEDGE_DIR = path.join(__dirname, 'knowledge');
 
-// ===== قائمة المنتجات (إنجليزي + عربي) =====
 const PRICE_LIST = [
   { en: "GANOZHI TOOTHPASTE PLUS 150G", ar: "معجون جانورهاي بلس 150 جرام", dp: 7.60, rp: 9.75, pv: 2.75 },
   { en: "GANOZHI TOOTHPASTE PLUS 40g (4 PCS)", ar: "معجون جانورهاي بلس صغير 4×40 مل", dp: 12.60, rp: 16.15, pv: 3.95 },
@@ -66,7 +66,7 @@ let priceData = [];
 
 export async function loadPriceList() {
   priceData = PRICE_LIST;
-  console.log(`✅ تم تحميل ${priceData.length} منتج من القائمة الثابتة.`);
+  console.log(`✅ تم تحميل ${priceData.length} منتج`);
   return priceData;
 }
 
@@ -78,60 +78,90 @@ export function searchPriceList(query) {
     const lowerAr = p.ar.toLowerCase();
     return keywords.some(kw => lowerEn.includes(kw.toLowerCase()) || lowerAr.includes(kw.toLowerCase()));
   });
-  if (results.length === 0) {
-    return priceData.slice(0, 5).map(p => ({ ...p, suggestion: true }));
-  }
+  if (results.length === 0) return priceData.slice(0, 5).map(p => ({ ...p, suggestion: true }));
   return results.slice(0, 10);
 }
 
-export function formatPriceReply(products, query) {
-  if (!products.length) {
-    return `🔍 لم أجد منتجات تطابق "${query}". يمكنك الاطلاع على الملف المرفق لترى جميع المنتجات.`;
+export function generatePriceImage(products, query) {
+  const rowHeight = 48;
+  const padding = 12;
+  const cols = [280, 80, 90, 80];
+  const totalWidth = cols.reduce((a, b) => a + b + padding, padding);
+  const totalHeight = (products.length + 2) * rowHeight + padding * 2;
+
+  const canvas = createCanvas(totalWidth, totalHeight);
+  const ctx = canvas.getContext('2d');
+
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, totalWidth, totalHeight);
+
+  ctx.strokeStyle = '#1e3a5f';
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(1, 1, totalWidth - 2, totalHeight - 2);
+
+  const headers = ['المنتج', 'العضو', 'غير عضو', 'النقاط'];
+  const headerColors = ['#1e3a5f', '#2c5282', '#2c5282', '#2c5282'];
+  ctx.font = 'bold 14px Arial, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  let x = padding;
+  for (let i = 0; i < headers.length; i++) {
+    ctx.fillStyle = headerColors[i];
+    ctx.fillRect(x, padding, cols[i], rowHeight);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(headers[i], x + cols[i]/2, padding + rowHeight/2);
+    x += cols[i] + padding;
   }
-  let reply = `📊 *نتائج البحث عن: "${query}"*\n\n`;
-  const isSuggestion = products[0]?.suggestion;
-  if (isSuggestion) {
-    reply = `📋 *عرض بعض المنتجات المتاحة (للاستعراض)*\n\n`;
-  }
-  
-  // بناء جدول نصي محاذي (بدون Markdown معقد)
-  let table = "┌────────────────────────────────────────────────┬──────────┬──────────┬────────┐\n";
-  table += "│ المنتج                                         │ العضو   │ غير عضو │ النقاط │\n";
-  table += "├────────────────────────────────────────────────┼──────────┼──────────┼────────┤\n";
+
+  let y = padding + rowHeight + 4;
+  ctx.font = '12px Arial, sans-serif';
   for (const p of products) {
-    const name = `${p.en}\n${p.ar}`;
-    const lines = name.split('\n');
-    const firstLine = lines[0] || '';
-    const secondLine = lines[1] || '';
-    table += `│ ${firstLine.padEnd(46)}│ ${p.dp.toFixed(2).padStart(8)} │ ${p.rp.toFixed(2).padStart(8)} │ ${p.pv.toFixed(2).padStart(6)} │\n`;
-    if (secondLine) {
-      table += `│ ${secondLine.padEnd(46)}│          │          │        │\n`;
+    if ((products.indexOf(p) % 2) === 0) {
+      ctx.fillStyle = '#f0f4f8';
+      ctx.fillRect(padding, y, totalWidth - padding*2, rowHeight - 4);
     }
+    ctx.fillStyle = '#000000';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    const name = `${p.en}`;
+    ctx.fillText(name.substring(0, 30), x + 4, y + rowHeight/2 - 6);
+    ctx.font = '10px Arial, sans-serif';
+    ctx.fillStyle = '#4a5568';
+    ctx.fillText(p.ar.substring(0, 30), x + 4, y + rowHeight/2 + 12);
+    ctx.font = '12px Arial, sans-serif';
+    ctx.fillStyle = '#000000';
+    x += cols[0] + padding;
+    ctx.textAlign = 'center';
+    const values = [p.dp.toFixed(2), p.rp.toFixed(2), p.pv.toFixed(2)];
+    for (let i = 0; i < values.length; i++) {
+      ctx.fillText(values[i], x + cols[i+1]/2, y + rowHeight/2);
+      x += cols[i+1] + padding;
+    }
+    y += rowHeight + 4;
   }
-  table += "└────────────────────────────────────────────────┴──────────┴──────────┴────────┘";
-  reply += "```\n" + table + "\n```";
-  
-  if (!isSuggestion) {
-    reply += `\n📌 *تم عرض ${products.length} منتج من أصل ${priceData.length} منتج.*\n`;
-  }
-  reply += `\n📎 *سأرسل لك الملف الآن لتطلع على القائمة الكاملة.*`;
-  return reply;
+
+  return canvas.toBuffer('image/png');
+}
+
+export function formatPriceReply(products, query) {
+  if (!products.length) return `🔍 لم أجد منتجات تطابق "${query}".`;
+  return `📊 *نتائج البحث عن: "${query}"*\n(الصورة أدناه)\n\n📎 *سأرسل لك الملف الآن لتطلع على القائمة الكاملة.*`;
 }
 
 export async function sendPriceListPDF(userId, client) {
   const pdfPath = path.join(KNOWLEDGE_DIR, 'pdfs', 'قائمة أسعار المنتجات 2026.pdf');
   if (!await fs.pathExists(pdfPath)) {
-    console.warn('⚠️ ملف PDF غير موجود للإرسال');
+    console.warn('⚠️ ملف PDF غير موجود');
     return false;
   }
   try {
     await client.sendMessage(userId, {
       document: { file: pdfPath },
-      caption: '📄 *قائمة أسعار المنتجات 2026 (كاملة)*\nجميع المنتجات مع الأسعار والنقاط.'
+      caption: '📄 *قائمة أسعار المنتجات 2026 (كاملة)*'
     });
     return true;
   } catch (e) {
-    console.error('❌ فشل إرسال ملف PDF:', e.message);
+    console.error('❌ فشل إرسال PDF:', e.message);
     return false;
   }
 }
@@ -169,4 +199,4 @@ export async function searchInFiles(query) {
   return { answer: context, context };
 }
 
-export default { loadKnowledge, searchInFiles, loadPriceList, searchPriceList, formatPriceReply, sendPriceListPDF };
+export default { loadKnowledge, searchInFiles, loadPriceList, searchPriceList, generatePriceImage, formatPriceReply, sendPriceListPDF };
