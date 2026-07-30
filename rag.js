@@ -81,52 +81,48 @@ export function searchPriceList(query) {
   return results.slice(0, 10);
 }
 
-export function generatePriceTable(products, query) {
+export function generatePriceText(products, query) {
   if (!products.length) return `🔍 لم أجد منتجات تطابق "${query}".`;
-  let table = `📊 *نتائج البحث عن: "${query}"*\n\n`;
-  table += "```\n";
-  table += "┌────┬──────────────────────────────────────────────────┬──────────┬──────────┬────────┐\n";
-  table += "│ #  │ المنتج                                           │ العضو   │ غير عضو │ النقاط │\n";
-  table += "├────┼──────────────────────────────────────────────────┼──────────┼──────────┼────────┤\n";
+  let text = `📊 *نتائج البحث عن: "${query}"*\n\n`;
   let i = 1;
   for (const p of products) {
-    const name = `${p.en}\n${p.ar}`;
-    const lines = name.split('\n');
-    table += `│ ${String(i).padStart(2)} │ ${lines[0].padEnd(48)}│ ${p.dp.toFixed(2).padStart(8)} │ ${p.rp.toFixed(2).padStart(8)} │ ${p.pv.toFixed(2).padStart(6)} │\n`;
-    if (lines[1]) {
-      table += `│    │ ${lines[1].padEnd(48)}│          │          │        │\n`;
-    }
+    text += `${i}. *${p.en}*\n`;
+    text += `   ${p.ar}\n`;
+    text += `   🟢 سعر العضو: ${p.dp.toFixed(2)}$\n`;
+    text += `   🔴 سعر غير العضو: ${p.rp.toFixed(2)}$\n`;
+    text += `   ⭐ النقاط: ${p.pv.toFixed(2)} P.V\n\n`;
     i++;
   }
-  table += "└────┴──────────────────────────────────────────────────┴──────────┴──────────┴────────┘\n";
-  table += "```\n";
-  table += `📌 *تم عرض ${products.length} منتج من أصل ${priceData.length} منتج.*\n`;
-  table += `\n📎 *سأرسل لك الملف الآن لتطلع على القائمة الكاملة.*`;
-  return table;
+  text += `📌 *تم عرض ${products.length} منتج من أصل ${priceData.length} منتج.*\n`;
+  text += `\n📎 *سأرسل لك الملف الآن لتطلع على القائمة الكاملة.*`;
+  return text;
 }
 
 export async function sendPriceListPDF(userId, client) {
   const pdfPath = path.join(KNOWLEDGE_DIR, 'pdfs', 'قائمة أسعار المنتجات 2026.pdf');
   console.log(`📄 مسار PDF: ${pdfPath}`);
-  console.log(`📄 الملف موجود: ${await fs.pathExists(pdfPath)}`);
+  const exists = await fs.pathExists(pdfPath);
+  console.log(`📄 الملف موجود: ${exists}`);
   
-  if (!await fs.pathExists(pdfPath)) {
+  if (!exists) {
     console.warn('⚠️ ملف PDF غير موجود');
     await client.sendMessage(userId, { message: '⚠️ عذراً، ملف PDF غير متوفر حالياً.' });
     return false;
   }
+  
   try {
     const stats = await fs.stat(pdfPath);
     console.log(`📄 حجم الملف: ${stats.size} بايت`);
-    if (stats.size === 0) {
-      console.warn('⚠️ ملف PDF فارغ (0 بايت)');
-      await client.sendMessage(userId, { message: '⚠️ عذراً، ملف PDF تالف (فارغ).' });
+    if (stats.size < 100) {
+      console.warn('⚠️ ملف PDF صغير جداً (قد يكون تالفاً)');
+      await client.sendMessage(userId, { message: '⚠️ عذراً، ملف PDF تالف أو فارغ.' });
       return false;
     }
     await client.sendMessage(userId, {
       document: { file: pdfPath },
       caption: '📄 *قائمة أسعار المنتجات 2026 (كاملة)*'
     });
+    console.log('✅ تم إرسال PDF بنجاح');
     return true;
   } catch (e) {
     console.error('❌ فشل إرسال PDF:', e.message);
@@ -168,4 +164,4 @@ export async function searchInFiles(query) {
   return { answer: context, context };
 }
 
-export default { loadKnowledge, searchInFiles, loadPriceList, searchPriceList, generatePriceTable, sendPriceListPDF };
+export default { loadKnowledge, searchInFiles, loadPriceList, searchPriceList, generatePriceText, sendPriceListPDF };

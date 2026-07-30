@@ -55,30 +55,21 @@ function cleanText(text) {
              .trim();
 }
 
-function formatReply(text) {
-  if (!text) return '';
-  text = text.replace(/هذه المعلومات مأخوذة من ملفات DXN/gi, '');
-  text = text.replace(/من ملفات DXN/gi, '');
-  text = text.replace(/^مروان:\s*/gi, '');
-  return text.trim();
-}
-
 async function sendLongMessage(userId, text, replyToMsgId = null) {
   if (!text) return false;
   text = cleanText(text);
-  text = formatReply(text);
   if (!text) return false;
-  const MAX_LENGTH = 4000;
+  const MAX_LENGTH = 4096;
   let parts = [];
   if (text.length <= MAX_LENGTH) { parts.push(text); } 
   else {
-    const paragraphs = text.split(/\n\s*\n/);
+    const lines = text.split('\n');
     let current = '';
-    for (const p of paragraphs) {
-      if ((current + p).length > MAX_LENGTH && current.length > 0) {
+    for (const line of lines) {
+      if ((current + line).length > MAX_LENGTH && current.length > 0) {
         parts.push(current.trim());
-        current = p;
-      } else { current += (current ? '\n\n' : '') + p; }
+        current = line;
+      } else { current += (current ? '\n' : '') + line; }
     }
     if (current.trim()) parts.push(current.trim());
   }
@@ -91,7 +82,7 @@ async function sendLongMessage(userId, text, replyToMsgId = null) {
       await client.sendMessage(entity, options);
       sent = true;
     } catch (e) { console.error('❌ إرسال:', e.message); }
-    if (i < parts.length - 1) await new Promise(r => setTimeout(r, 2000));
+    if (i < parts.length - 1) await new Promise(r => setTimeout(r, 1000));
   }
   return sent;
 }
@@ -162,36 +153,12 @@ async function handlePriceQuery(userId, question, msgId) {
     return;
   }
 
-  // 1. إنشاء وإرسال الصورة
-  try {
-    const imageBuffer = await rag.generatePriceImage(results, question);
-    if (imageBuffer) {
-      const entity = await getCachedEntity(userId);
-      await client.sendMessage(entity, {
-        file: imageBuffer,
-        caption: `📊 *نتائج البحث عن: "${question}"*`
-      });
-    } else {
-      // بديل: إرسال نص
-      let reply = `📊 *نتائج البحث عن: "${question}"*\n\n`;
-      for (const p of results) {
-        reply += `🔹 *${p.en}*\n   ${p.ar}\n   🟢 العضو: ${p.dp.toFixed(2)}$ | 🔴 غير عضو: ${p.rp.toFixed(2)}$ | ⭐ النقاط: ${p.pv.toFixed(2)} P.V\n\n`;
-      }
-      await sendLongMessage(userId, reply, msgId);
-    }
-  } catch (e) {
-    console.error('❌ خطأ في الصورة:', e);
-    await sendLongMessage(userId, '⚠️ حدث خطأ في إنشاء الصورة، لكن يمكنك الاطلاع على الملف PDF المرفق.', msgId);
-  }
+  // 1. إرسال قائمة المنتجات كرسالة نصية (كل منتج بسطر)
+  const text = rag.generatePriceText(results, question);
+  await sendLongMessage(userId, text, msgId);
 
-  // 2. إرسال رسالة تأكيدية
-  await sendLongMessage(userId, `📎 *جاري إرسال ملف PDF الآن لتطلع على القائمة الكاملة...*`);
-
-  // 3. إرسال ملف PDF
-  const sent = await rag.sendPriceListPDF(userId, client);
-  if (!sent) {
-    await sendLongMessage(userId, '⚠️ تعذر إرسال ملف PDF، لكن يمكنك طلب المساعدة من الإدارة.', null);
-  }
+  // 2. إرسال ملف PDF (محاولة واحدة فقط)
+  await rag.sendPriceListPDF(userId, client);
 }
 
 async function getFastReply(question, contextStr) {
