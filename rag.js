@@ -1,10 +1,13 @@
 import fs from 'fs-extra';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const KNOWLEDGE_DIR = path.join(__dirname, 'knowledge');
+const TEMP_DIR = path.join(__dirname, 'temp');
+fs.ensureDirSync(TEMP_DIR);
 
 const PRICE_LIST = [
   { en: "GANOZHI TOOTHPASTE PLUS 150G", ar: "معجون جانورهاي بلس 150 جرام", dp: 7.60, rp: 9.75, pv: 2.75 },
@@ -64,9 +67,68 @@ const PRICE_LIST = [
 let priceData = [];
 
 export async function loadPriceList() {
+  if (priceData.length) return priceData;
   priceData = PRICE_LIST;
   console.log(`✅ تم تحميل ${priceData.length} منتج`);
   return priceData;
+}
+
+export async function generatePricePDF() {
+  try {
+    const pdfDoc = await PDFDocument.create();
+    const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+    const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+    const page = pdfDoc.addPage([600, 800]);
+    const { height } = page.getSize();
+    let y = height - 50;
+
+    page.drawText('قائمة أسعار منتجات DXN', {
+      x: 50,
+      y: y,
+      size: 18,
+      font: fontBold,
+      color: rgb(0.1, 0.2, 0.5),
+    });
+    y -= 30;
+
+    const colWidths = [280, 80, 80, 70];
+    let x = 50;
+    page.drawText('المنتج', { x: x, y: y, size: 12, font: fontBold });
+    x += colWidths[0];
+    page.drawText('سعر العضو', { x: x, y: y, size: 12, font: fontBold });
+    x += colWidths[1];
+    page.drawText('سعر غير العضو', { x: x, y: y, size: 12, font: fontBold });
+    x += colWidths[2];
+    page.drawText('النقاط', { x: x, y: y, size: 12, font: fontBold });
+    y -= 20;
+
+    for (const p of priceData) {
+      if (y < 50) {
+        const newPage = pdfDoc.addPage([600, 800]);
+        y = newPage.getSize().height - 50;
+      }
+      x = 50;
+      const name = `${p.en}\n${p.ar}`;
+      const lines = name.split('\n');
+      page.drawText(lines[0] || '', { x: x, y: y, size: 10, font: font });
+      if (lines[1]) {
+        page.drawText(lines[1], { x: x, y: y - 14, size: 9, font: font, color: rgb(0.3, 0.3, 0.3) });
+      }
+      x += colWidths[0];
+      page.drawText(p.dp.toFixed(2), { x: x, y: y, size: 10, font: font });
+      x += colWidths[1];
+      page.drawText(p.rp.toFixed(2), { x: x, y: y, size: 10, font: font });
+      x += colWidths[2];
+      page.drawText(p.pv.toFixed(2), { x: x, y: y, size: 10, font: font });
+      y -= 24;
+    }
+
+    const pdfBytes = await pdfDoc.save();
+    return pdfBytes;
+  } catch (e) {
+    console.error('❌ فشل توليد PDF:', e.message);
+    return null;
+  }
 }
 
 export function searchPriceList(query) {
@@ -98,72 +160,4 @@ export function generatePriceText(products, query) {
   return text;
 }
 
-export async function sendPriceListPDF(userId, client) {
-  const pdfPath = path.join(KNOWLEDGE_DIR, 'pdfs', 'قائمة أسعار المنتجات 2026.pdf');
-  console.log(`📄 مسار PDF: ${pdfPath}`);
-  const exists = await fs.pathExists(pdfPath);
-  console.log(`📄 الملف موجود: ${exists}`);
-  
-  if (!exists) {
-    console.warn('⚠️ ملف PDF غير موجود');
-    await client.sendMessage(userId, { message: '⚠️ عذراً، ملف PDF غير متوفر حالياً.' });
-    return false;
-  }
-  
-  try {
-    const stats = await fs.stat(pdfPath);
-    console.log(`📄 حجم الملف: ${stats.size} بايت`);
-    if (stats.size < 100) {
-      console.warn('⚠️ ملف PDF صغير جداً (قد يكون تالفاً)');
-      await client.sendMessage(userId, { message: '⚠️ عذراً، ملف PDF تالف أو فارغ.' });
-      return false;
-    }
-    await client.sendMessage(userId, {
-      document: { file: pdfPath },
-      caption: '📄 *قائمة أسعار المنتجات 2026 (كاملة)*'
-    });
-    console.log('✅ تم إرسال PDF بنجاح');
-    return true;
-  } catch (e) {
-    console.error('❌ فشل إرسال PDF:', e.message);
-    await client.sendMessage(userId, { message: '⚠️ تعذر إرسال ملف PDF، لكن يمكنك طلب المساعدة من الإدارة.' });
-    return false;
-  }
-}
-
-let KNOWLEDGE_CACHE = null;
-export async function loadKnowledge() {
-  if (KNOWLEDGE_CACHE) return KNOWLEDGE_CACHE;
-  let allText = '';
-  const mainFiles = await fs.readdir(KNOWLEDGE_DIR).catch(() => []);
-  for (const file of mainFiles) {
-    if (file.endsWith('.txt') || file.endsWith('.md')) {
-      const content = await fs.readFile(path.join(KNOWLEDGE_DIR, file), 'utf-8').catch(() => '');
-      if (content) allText += content + '\n';
-    }
-  }
-  KNOWLEDGE_CACHE = allText;
-  return KNOWLEDGE_CACHE;
-}
-export async function searchInFiles(query) {
-  const allText = await loadKnowledge();
-  if (!allText || allText.length < 50) return { answer: null, context: null };
-  const paragraphs = allText.split(/\n\s*\n/).filter(p => p.trim().length > 20);
-  const keywords = query.split(/\s+/).filter(w => w.length > 2);
-  const scored = paragraphs.map(p => {
-    let score = 0;
-    const lower = p.toLowerCase();
-    for (const kw of keywords) if (lower.includes(kw.toLowerCase())) score += 5;
-    if (lower.includes(query.toLowerCase())) score += 20;
-    return { content: p.trim(), score };
-  });
-  scored.sort((a, b) => b.score - a.score);
-  const top = scored.filter(p => p.score > 5);
-  if (top.length === 0) return { answer: null, context: null };
-  let context = top.slice(0, 6).map(p => p.content).join('\n\n');
-  return { answer: context, context };
-}
-
-export default { loadKnowledge, searchInFiles, loadPriceList, searchPriceList, generatePriceText, sendPriceListPDF };
-// تحديث بسيط لإعادة النشر على Render
-
+export default { loadPriceList, generatePricePDF, searchPriceList, generatePriceText };

@@ -6,7 +6,6 @@ import path from 'path';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import MARWAN_PROMPT from './prompts/marwan.js';
-import { generatePricePDF } from './rag.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -108,46 +107,18 @@ function formatReply(text) {
 
 async function sendPDF(userId, fileKey, caption, replyToMsgId = null) {
   const pdfDir = path.join(process.cwd(), 'knowledge', 'pdfs');
-  let fileName = PDF_FILES[fileKey];
+  const fileName = PDF_FILES[fileKey];
   if (!fileName) {
     console.log('⚠️ مفتاح الملف غير صحيح:', fileKey);
     return false;
   }
-  let filePath = path.join(pdfDir, fileName);
+  const filePath = path.join(pdfDir, fileName);
   console.log('📄 محاولة إرسال الملف:', fileName);
   console.log('📂 المسار الكامل:', filePath);
-
-  // إذا كان الملف غير موجود، نحاول إنشاء ملف ديناميكي للكتالوج (كحل احتياطي)
   if (!await fs.pathExists(filePath)) {
-    if (fileKey === 'products') {
-      console.log('⚠️ ملف الكتالوج غير موجود، سيتم إنشاء ملف ديناميكي.');
-      const pdfBytes = await generatePricePDF();
-      if (!pdfBytes) {
-        console.log('❌ فشل إنشاء ملف PDF ديناميكي');
-        return false;
-      }
-      const tempPath = path.join(pdfDir, 'كتالوج_منتجات_DXN.pdf');
-      await fs.writeFile(tempPath, pdfBytes);
-      filePath = tempPath;
-      fileName = 'كتالوج_منتجات_DXN.pdf';
-    } else if (fileKey === 'price_list') {
-      // إنشاء ملف الأسعار ديناميكياً أيضاً
-      console.log('⚠️ ملف الأسعار غير موجود، سيتم إنشاء ملف ديناميكي.');
-      const pdfBytes = await generatePricePDF();
-      if (!pdfBytes) {
-        console.log('❌ فشل إنشاء ملف PDF ديناميكي');
-        return false;
-      }
-      const tempPath = path.join(pdfDir, 'قائمة_أسعار_DXN.pdf');
-      await fs.writeFile(tempPath, pdfBytes);
-      filePath = tempPath;
-      fileName = 'قائمة_أسعار_DXN.pdf';
-    } else {
-      console.log('❌ الملف غير موجود ولا يوجد حل احتياطي لهذا المفتاح:', fileKey);
-      return false;
-    }
+    console.log('❌ الملف غير موجود في المسار:', filePath);
+    return false;
   }
-
   try {
     const entity = await getCachedEntity(userId);
     const options = { file: filePath, caption: caption || '📄 ' + fileName };
@@ -224,7 +195,7 @@ async function sendLongMessage(userId, text, replyToMsgId = null) {
       console.error('❌ فشل إرسال الجزء', i+1, ':', e.message);
     }
     if (i < finalParts.length - 1) {
-      console.log('⏳ انتظار 5 ثوانٍ قبل إرسال الجزء التالي...');
+      console.log('⏳ انتظار 40 ثانية قبل إرسال الجزء التالي...');
       await new Promise(resolve => setTimeout(resolve, 5000));
     }
   }
@@ -401,6 +372,7 @@ async function getReply(userId, question, msgId) {
   reply = reply.replace(/^مروان:\s*/gi, '');
 
   if (pdfRequest) {
+    // رسالة خاصة عند طلب الأسعار/المنتجات (ملفين)
     if (pdfRequest.multi) {
       reply = reply + `\n\n📄 *سأرسل لك ملفين PDF يحتويان على الأسعار والفوائد وأنواع المنتجات. يمكنك الاطلاع عليهما للمزيد.*`;
     } else {
@@ -419,13 +391,12 @@ async function getReply(userId, question, msgId) {
 
   await sendLongMessage(userId, reply, msgId);
 
+  // إرسال الملفات المطلوبة
   if (pdfRequest) {
-    // إرسال الملفات بالتوازي
-    const promises = pdfRequest.keys.map(async (key) => {
+    for (const key of pdfRequest.keys) {
       const caption = pdfRequest.multi ? `📄 ${key === 'price_list' ? 'قائمة الأسعار' : 'كتالوج المنتجات'}` : `📄 ${pdfRequest.topic}`;
-      return sendPDF(userId, key, caption, msgId);
-    });
-    await Promise.all(promises);
+      await sendPDF(userId, key, caption, msgId);
+    }
   }
 
   setLastReply(userId, reply);
