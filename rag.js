@@ -84,15 +84,23 @@ export function searchPriceList(query) {
 export function generatePriceTable(products, query) {
   if (!products.length) return `🔍 لم أجد منتجات تطابق "${query}".`;
   let table = `📊 *نتائج البحث عن: "${query}"*\n\n`;
-  table += "| # | المنتج | سعر العضو | سعر غير العضو | النقاط |\n";
-  table += "|---|--------|-----------|---------------|--------|\n";
+  table += "```\n";
+  table += "┌────┬──────────────────────────────────────────────────┬──────────┬──────────┬────────┐\n";
+  table += "│ #  │ المنتج                                           │ العضو   │ غير عضو │ النقاط │\n";
+  table += "├────┼──────────────────────────────────────────────────┼──────────┼──────────┼────────┤\n";
   let i = 1;
   for (const p of products) {
     const name = `${p.en}\n${p.ar}`;
-    table += `| ${i} | ${name} | ${p.dp.toFixed(2)} $ | ${p.rp.toFixed(2)} $ | ${p.pv.toFixed(2)} P.V |\n`;
+    const lines = name.split('\n');
+    table += `│ ${String(i).padStart(2)} │ ${lines[0].padEnd(48)}│ ${p.dp.toFixed(2).padStart(8)} │ ${p.rp.toFixed(2).padStart(8)} │ ${p.pv.toFixed(2).padStart(6)} │\n`;
+    if (lines[1]) {
+      table += `│    │ ${lines[1].padEnd(48)}│          │          │        │\n`;
+    }
     i++;
   }
-  table += `\n📌 *تم عرض ${products.length} منتج من أصل ${priceData.length} منتج.*\n`;
+  table += "└────┴──────────────────────────────────────────────────┴──────────┴──────────┴────────┘\n";
+  table += "```\n";
+  table += `📌 *تم عرض ${products.length} منتج من أصل ${priceData.length} منتج.*\n`;
   table += `\n📎 *سأرسل لك الملف الآن لتطلع على القائمة الكاملة.*`;
   return table;
 }
@@ -101,6 +109,7 @@ export async function sendPriceListPDF(userId, client) {
   const pdfPath = path.join(KNOWLEDGE_DIR, 'pdfs', 'قائمة أسعار المنتجات 2026.pdf');
   if (!await fs.pathExists(pdfPath)) {
     console.warn('⚠️ ملف PDF غير موجود');
+    await client.sendMessage(userId, { message: '⚠️ عذراً، ملف PDF غير متوفر حالياً.' });
     return false;
   }
   try {
@@ -111,6 +120,7 @@ export async function sendPriceListPDF(userId, client) {
     return true;
   } catch (e) {
     console.error('❌ فشل إرسال PDF:', e.message);
+    await client.sendMessage(userId, { message: '⚠️ تعذر إرسال ملف PDF، لكن يمكنك طلب المساعدة من الإدارة.' });
     return false;
   }
 }
