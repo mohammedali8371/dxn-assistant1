@@ -167,12 +167,11 @@ async function handlePriceQuery(userId, question, msgId) {
     const imageBuffer = rag.generatePriceImage(results, question);
     const entity = await getCachedEntity(userId);
     await client.sendMessage(entity, {
-      photo: { file: imageBuffer },
+      file: imageBuffer,
       caption: `📊 *نتائج البحث عن: "${question}"*`
     });
   } catch (e) {
     console.error('❌ فشل إنشاء الصورة:', e);
-    // بديل: إرسال النص
     const reply = rag.formatPriceReply(results, question);
     await sendLongMessage(userId, reply, msgId);
   }

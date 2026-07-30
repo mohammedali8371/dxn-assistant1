@@ -1,0 +1,1092 @@
+===== FILE: ./package.json =====
+{
+  "name": "dxn-assistant",
+  "version": "3.0.0",
+  "type": "module",
+  "description": "مساعد DXN الذكي",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "dependencies": {
+    "axios": "^1.5.0",
+    "cheerio": "^1.0.0-rc.12",
+    "chokidar": "^3.5.3",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "fs-extra": "^11.1.1",
+    "input": "^1.0.1",
+    "mammoth": "^1.6.0",
+    "mongoose": "^9.8.0",
+    "node-cache": "^5.1.2",
+    "openai": "^4.20.0",
+    "pdf-parse": "^1.1.4",
+    "sharp": "^0.33.0",
+    "telegram": "^2.6.0",
+    "uuid": "^9.0.1",
+    "winston": "^3.10.0",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  }
+}
+===== FILE: ./config.js =====
+import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { randomUUID } from 'crypto';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+dotenv.config({ path: path.join(__dirname, '.env') });
+
+console.log('📌 config.js: FIREBASE_KEY =', process.env.FIREBASE_KEY ? 'موجود' : 'مفقود');
+console.log('📌 config.js: EXTRA_ACCESS_TOKEN =', process.env.EXTRA_ACCESS_TOKEN ? 'موجود' : 'مفقود');
+
+export const config = {
+  apiId: parseInt(process.env.API_ID, 10),
+  apiHash: process.env.API_HASH,
+  phone: process.env.PHONE,
+  openaiApiKey: process.env.OPENAI_API_KEY || '',
+  mongoUri: process.env.MONGO_URI,
+  assistantName: process.env.ASSISTANT_NAME || 'مساعد DXN',
+  temperature: parseFloat(process.env.TEMPERATURE) || 0.7,
+  topK: parseInt(process.env.TOP_K, 10) || 5,
+  chunkSize: parseInt(process.env.CHUNK_SIZE, 10) || 1000,
+  dashboardPassword: process.env.DASHBOARD_PASSWORD || 'admin123',
+  port: parseInt(process.env.PORT, 10) || 3000,
+  firebaseKey: process.env.FIREBASE_KEY,
+  extraAccessToken: process.env.EXTRA_ACCESS_TOKEN,
+  nodeEnv: process.env.NODE_ENV || 'development',
+};
+
+export function validateEnv() {
+  const required = ['apiId', 'apiHash', 'phone', 'firebaseKey', 'extraAccessToken'];
+  const missing = required.filter(key => !config[key]);
+  if (missing.length) throw new Error('Missing env: ' + missing.join(', '));
+  return true;
+}
+
+export function getSystemPrompt() {
+  return "أنت مساعد ذكي متخصص في منتجات وخدمات DXN.";
+}
+
+export function generateId() { return randomUUID(); }
+export function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+export async function retry(fn, tries, delay) {
+  tries = tries || 3;
+  delay = delay || 1000;
+  let last;
+  for (let i = 0; i < tries; i++) {
+    try { return await fn(); } catch(e) { last = e; if (i < tries - 1) await sleep(delay * (i + 1)); }
+  }
+  throw last;
+}
+
+export default { config, validateEnv, getSystemPrompt, generateId, sleep, retry };
+===== FILE: ./logger.js =====
+import winston from 'winston';
+import path from 'path';
+import fs from 'fs-extra';
+
+const logDir = path.join(process.cwd(), 'logs');
+fs.ensureDirSync(logDir);
+
+const format = winston.format.combine(
+  winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
+  winston.format.errors({ stack: true }),
+  winston.format.json(),
+  winston.format.printf(({ timestamp, level, message, category, ...meta }) =>
+    `${timestamp} [${level}] ${category?`[${category}] `:''}${message} ${Object.keys(meta).length?JSON.stringify(meta):''}`
+  )
+);
+
+const logger = winston.createLogger({
+  level: process.env.LOG_LEVEL || 'info',
+  format,
+  transports: [
+    new winston.transports.File({ filename: path.join(logDir,'error.log'), level:'error' }),
+    new winston.transports.File({ filename: path.join(logDir,'combined.log') }),
+  ],
+});
+
+if (process.env.NODE_ENV !== 'production') {
+  logger.add(new winston.transports.Console({ format: winston.format.combine(winston.format.colorize(), winston.format.simple()) }));
+}
+
+logger.errorWithContext = function(msg, err, ctx={}) {
+  this.error(msg, { ...ctx, error: { message: err.message, stack: err.stack, name: err.name } });
+};
+
+export { logger };
+export default logger;
+===== FILE: ./database.js =====
+import mongoose from 'mongoose';
+import { logger } from './logger.js';
+const { Schema } = mongoose;
+
+// ===== النماذج =====
+const UserSchema = new Schema({
+  telegramId: { type: Number, required: true, unique: true, index: true },
+  username: String, firstName: String, lastName: String, phone: String,
+  isBot: { type: Boolean, default: false }, languageCode: { type: String, default: 'ar' },
+  lastInteraction: { type: Date, default: Date.now }, isActive: { type: Boolean, default: true },
+  preferences: { dialect: { type: String, default: 'ye' }, temperature: { type: Number, default: 0.7 } },
+  stats: { messagesSent: { type: Number, default: 0 }, filesShared: { type: Number, default: 0 }, queriesCount: { type: Number, default: 0 } },
+}, { timestamps: true });
+
+const ConvSchema = new Schema({
+  userId: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+  chatId: { type: Number, required: true, index: true },
+  messages: [{ role: { type: String, enum: ['user','assistant','system'] }, content: String, timestamp: { type: Date, default: Date.now }, mediaType: { type: String, default: 'text' }, fileId: String }],
+  maxMessages: { type: Number, default: 20 }, summary: String, lastUpdated: { type: Date, default: Date.now },
+}, { timestamps: true });
+ConvSchema.index({ userId: 1, chatId: 1 }, { unique: true });
+
+const KnowSchema = new Schema({
+  content: String, embedding: [Number], sourceFile: String, fileType: String,
+  chunkIndex: Number, totalChunks: Number, metadata: Schema.Types.Mixed,
+  addedAt: { type: Date, default: Date.now }, isActive: { type: Boolean, default: true }, retrievalCount: { type: Number, default: 0 },
+}, { timestamps: true });
+
+const LogSchema = new Schema({
+  level: { type: String, enum: ['error','warn','info','debug'], required: true, index: true },
+  message: String, meta: Schema.Types.Mixed, timestamp: { type: Date, default: Date.now, index: true },
+  category: { type: String, enum: ['system','telegram','openai','rag','dashboard','user'], default: 'system' },
+}, { timestamps: true });
+
+const StatSchema = new Schema({
+  date: { type: Date, required: true, unique: true, index: true },
+  users: { total: Number, active: Number, new: Number },
+  messages: { total: Number, text: Number, image: Number, audio: Number, video: Number, file: Number },
+  ai: { totalRequests: Number, chatCompletions: Number, totalTokens: Number, estimatedCost: Number },
+  rag: { totalQueries: Number, totalRetrievals: Number },
+  system: { errors: Number },
+}, { timestamps: true });
+StatSchema.statics.increment = async function(date, field, val=1) {
+  const upd = { $inc: {} };
+  const parts = field.split('.');
+  let cur = upd.$inc;
+  for (let i=0; i<parts.length-1; i++) { cur[parts[i]] = cur[parts[i]]||{}; cur = cur[parts[i]]; }
+  cur[parts[parts.length-1]] = val;
+  return this.findOneAndUpdate({ date }, upd, { upsert: true, new: true });
+};
+
+export const User = mongoose.model('User', UserSchema);
+export const Conversation = mongoose.model('Conversation', ConvSchema);
+export const Knowledge = mongoose.model('Knowledge', KnowSchema);
+export const Log = mongoose.model('Log', LogSchema);
+export const Stat = mongoose.model('Stat', StatSchema);
+
+// ===== اتصال قاعدة البيانات =====
+export async function connectDB() {
+  try {
+    await mongoose.connect(process.env.MONGO_URI);
+    logger.info('✅ MongoDB connected');
+  } catch(e) { logger.error('❌ DB: '+e.message); process.exit(1); }
+}
+
+// ===== الذاكرة (المحادثات) =====
+const MAX_MSGS = 20;
+export async function getOrCreateConv(userId, chatId) {
+  let conv = await Conversation.findOne({ userId, chatId });
+  if (!conv) { conv = new Conversation({ userId, chatId, messages: [] }); await conv.save(); }
+  return conv;
+}
+export async function addMessage(userId, chatId, role, content, mediaType='text', fileId='') {
+  const conv = await getOrCreateConv(userId, chatId);
+  conv.messages.push({ role, content, timestamp: new Date(), mediaType, fileId });
+  if (conv.messages.length > MAX_MSGS) conv.messages = conv.messages.slice(-MAX_MSGS);
+  conv.lastUpdated = new Date();
+  await conv.save();
+  return conv;
+}
+export async function getContext(userId, chatId, limit=MAX_MSGS) {
+  const conv = await getOrCreateConv(userId, chatId);
+  return conv.messages.slice(-limit).map(m => ({ role: m.role, content: m.content }));
+}
+export async function clearMemory(userId, chatId) {
+  const conv = await getOrCreateConv(userId, chatId);
+  conv.messages = []; conv.summary = ''; await conv.save(); return true;
+}
+export async function getMemoryStats() {
+  const total = await Conversation.countDocuments();
+  const agg = await Conversation.aggregate([{ $project:{ count:{$size:'$messages'} } }, { $group:{ _id:null, total:{$sum:'$count'} } }]);
+  return { totalConversations: total, totalMessages: agg[0]?.total||0 };
+}
+
+export default { User, Conversation, Knowledge, Log, Stat, connectDB, getOrCreateConv, addMessage, getContext, clearMemory, getMemoryStats };
+===== FILE: ./utils.js =====
+import fs from 'fs-extra';
+import path from 'path';
+import { v4 as uuidv4 } from 'uuid';
+import mime from 'mime-types';
+import NodeCache from 'node-cache';
+import { logger } from './logger.js';
+import config from './config.js';
+
+// ===== الملفات =====
+export function ensureDir(p) { fs.ensureDirSync(p); return p; }
+export function getExt(p) { return path.extname(p).toLowerCase(); }
+export function getMime(p) { return mime.lookup(p) || 'application/octet-stream'; }
+export function uniqueName(orig) { const e=path.extname(orig); return `${path.basename(orig,e)}-${uuidv4()}${e}`; }
+export async function readText(p) { return fs.readFile(p,'utf-8'); }
+export async function writeText(p,c) { ensureDir(path.dirname(p)); await fs.writeFile(p,c,'utf-8'); return true; }
+export async function deleteFile(p) { if(await fs.pathExists(p)) await fs.unlink(p); return true; }
+export async function listFiles(dir, exts=null) {
+  const files=await fs.readdir(dir); const r=[];
+  for(const f of files) { const full=path.join(dir,f); const stat=await fs.stat(full); if(stat.isFile() && (!exts || exts.includes(getExt(f)))) r.push(full); }
+  return r;
+}
+
+// ===== النصوص =====
+export function chunkText(text, size=config.chunkSize) {
+  if(!text) return [];
+  const s = text.match(/[^.!?]+[.!?]+/g) || [text];
+  const chunks=[]; let cur='';
+  for(const x of s) { if((cur+x).length>size && cur.length>0) { chunks.push(cur.trim()); cur=x; } else cur+=x; }
+  if(cur.trim()) chunks.push(cur.trim());
+  return chunks;
+}
+export function cleanText(t) { return t?t.replace(/\s+/g,' ').replace(/\n+/g,'\n').replace(/\t+/g,' ').trim():''; }
+export function truncateText(t, max=100, suffix='...') { if(!t) return ''; return t.length<=max?t:t.substring(0,max)+suffix; }
+export function isDXNRelated(t) {
+  if(!t) return false;
+  const kw = ['dxn','گانوديرما','غانوديرما','ريشي','سبيرولينا','فيتامين','مكمل','صحي','مناعة','طاقة','علاج','وقائي','عضوي','طبيعي','فطر','تخسيس','وزن','كولسترول','سكر','ضغط','مفاصل','بشرة','شعر','أظافر','نوم','توتر','ذاكرة','تركيز','كبد','كلى','قلب','شرايين'];
+  return kw.some(k => t.toLowerCase().includes(k));
+}
+
+// ===== الكاش =====
+let cache=null;
+export function initCache(ttl=600) { if(!cache) { cache=new NodeCache({ stdTTL:ttl, checkperiod:120 }); logger.info('✅ Cache ready'); } return cache; }
+export function getCache() { if(!cache) return initCache(); return cache; }
+export function setCache(k,v,ttl=600) { return getCache().set(k,v,ttl); }
+export function getCacheValue(k) { return getCache().get(k); }
+export function delCache(k) { return getCache().del(k); }
+export function flushCache() { getCache().flushAll(); logger.info('🗑️ Cache flushed'); }
+export function getCacheStats() { const c=getCache(); return { keys:c.keys(), size:c.getStats().keys, hits:c.getStats().hits, misses:c.getStats().misses, hitRatio:c.getStats().hits/(c.getStats().hits+c.getStats().misses)||0 }; }
+
+export default { ensureDir, getExt, getMime, uniqueName, readText, writeText, deleteFile, listFiles,
+  chunkText, cleanText, truncateText, isDXNRelated,
+  initCache, getCache, setCache, getCacheValue, delCache, flushCache, getCacheStats };
+===== FILE: ./telegram.js =====
+import { TelegramClient } from 'telegram';
+import { StringSession } from 'telegram/sessions/index.js';
+import input from 'input';
+import fs from 'fs-extra';
+import path from 'path';
+import dotenv from 'dotenv';
+import { fileURLToPath } from 'url';
+import MARWAN_PROMPT from './prompts/marwan.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+dotenv.config({ path: path.join(__dirname, '.env') });
+
+const API_ID = parseInt(process.env.API_ID, 10);
+const API_HASH = process.env.API_HASH;
+const PHONE = process.env.PHONE;
+
+if (!API_ID || !API_HASH || !PHONE) {
+  console.error('❌ API_ID, API_HASH, PHONE must be set in .env');
+  process.exit(1);
+}
+
+console.log('✅ API_ID:', API_ID);
+console.log('✅ API_HASH:', API_HASH);
+console.log('✅ PHONE:', PHONE);
+
+import { logger } from './logger.js';
+import extra from './extra.js';
+
+const SESSION_DIR = path.join(process.cwd(), 'sessions');
+fs.ensureDirSync(SESSION_DIR);
+let client = null;
+const entityCache = new Map();
+
+const TELEGRAM_OPTIONS = {
+  connectionRetries: 2,
+  useWSS: true,
+  dc: 1,
+  timeout: 5,
+};
+
+// ✅ أسماء الملفات بالضبط كما هي في المجلد
+const PDF_FILES = {
+  products: 'كتالوج المنتجات مع الفوائد.pdf',
+  products_alt: 'ملف المنتجات روعة .pdf',
+  financial: 'DXN الخط المالية لشركة .pdf',
+  marketing: 'الخطة التسويقية 2026.pdf',
+  intro: 'البرنامج التعريفي الشامل ل DXN.pdf',
+};
+
+async function getCachedEntity(userId) {
+  if (entityCache.has(userId)) return entityCache.get(userId);
+  try {
+    const dialogs = await client.getDialogs();
+    for (const dialog of dialogs) {
+      if (dialog.entity && dialog.entity.id === userId) {
+        entityCache.set(userId, dialog.entity);
+        return dialog.entity;
+      }
+    }
+  } catch (e) {}
+  try {
+    const entity = await client.getEntity(userId);
+    entityCache.set(userId, entity);
+    return entity;
+  } catch (e) {
+    return null;
+  }
+}
+
+function cleanText(text) {
+  if (!text) return '';
+  return text
+    .replace(/[\u0000-\u001F\u007F-\u009F]/g, '')
+    .replace(/\s+/g, ' ')
+    .replace(/[^\w\s\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF.,?!:;()\-\n]/g, '')
+    .trim();
+}
+
+function formatReply(text) {
+  if (!text) return '';
+  text = text.replace(/هذه المعلومات مأخوذة من ملفات DXN/gi, '');
+  text = text.replace(/من ملفات DXN/gi, '');
+  text = text.replace(/^مروان:\s*/gi, '');
+  const lines = text.split('\n');
+  let formatted = '';
+  let inList = false;
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) { inList = false; formatted += '\n'; continue; }
+    if (trimmed.length < 40 && !trimmed.match(/^[•\-–—★▪▫◆◇○\d]/) && !trimmed.match(/^[أ-ي]/)) {
+      inList = false;
+      formatted += '\n*' + trimmed + '*\n';
+      continue;
+    }
+    if (trimmed.match(/^\d+[\.\)]\s*/) || trimmed.match(/^[•\-–—★▪▫◆◇○]\s*/)) {
+      inList = true;
+      formatted += trimmed + '\n';
+      continue;
+    }
+    if (inList) { inList = false; }
+    formatted += trimmed + '\n';
+  }
+  return formatted.trim();
+}
+
+async function sendPDF(userId, fileKey, caption, replyToMsgId = null) {
+  const pdfDir = path.join(process.cwd(), 'knowledge', 'pdfs');
+  const fileName = PDF_FILES[fileKey];
+  if (!fileName) {
+    console.log('⚠️ مفتاح الملف غير صحيح:', fileKey);
+    return false;
+  }
+  const filePath = path.join(pdfDir, fileName);
+  console.log('📄 محاولة إرسال الملف:', fileName);
+  console.log('📂 المسار الكامل:', filePath);
+  if (!await fs.pathExists(filePath)) {
+    console.log('❌ الملف غير موجود في المسار:', filePath);
+    return false;
+  }
+  try {
+    const entity = await getCachedEntity(userId);
+    const options = { file: filePath, caption: caption || '📄 ' + fileName };
+    if (replyToMsgId) options.replyTo = replyToMsgId;
+    await client.sendMessage(entity, options);
+    console.log('✅ تم إرسال الملف:', fileName);
+    return true;
+  } catch (e) {
+    console.error('❌ فشل إرسال الملف:', e.message);
+    return false;
+  }
+}
+
+async function sendLongMessage(userId, text, replyToMsgId = null) {
+  if (!text) return false;
+  text = cleanText(text);
+  text = formatReply(text);
+  if (!text) return false;
+
+  const MAX_LENGTH = 4000;
+  let parts = [];
+  if (text.length <= MAX_LENGTH) {
+    parts.push(text);
+  } else {
+    const paragraphs = text.split(/\n\s*\n/);
+    let current = '';
+    for (const p of paragraphs) {
+      if (p.length > MAX_LENGTH) {
+        const sentences = p.split(/(?<=[.!?])\s+/);
+        for (const s of sentences) {
+          if ((current + s).length > MAX_LENGTH && current.length > 0) {
+            parts.push(current.trim());
+            current = s;
+          } else {
+            current += (current ? ' ' : '') + s;
+          }
+        }
+      } else {
+        if ((current + p).length > MAX_LENGTH && current.length > 0) {
+          parts.push(current.trim());
+          current = p;
+        } else {
+          current += (current ? '\n\n' : '') + p;
+        }
+      }
+    }
+    if (current.trim()) parts.push(current.trim());
+  }
+
+  const finalParts = [];
+  for (let part of parts) {
+    while (part.length > MAX_LENGTH) {
+      let idx = part.lastIndexOf(' ', MAX_LENGTH);
+      if (idx === -1) idx = MAX_LENGTH;
+      finalParts.push(part.substring(0, idx).trim());
+      part = part.substring(idx).trim();
+    }
+    if (part) finalParts.push(part);
+  }
+
+  console.log('📨 إرسال', finalParts.length, 'جزء (إجمالي', text.length, 'حرف)');
+  let sent = false;
+  for (let i = 0; i < finalParts.length; i++) {
+    const part = finalParts[i];
+    const isFirst = (i === 0);
+    try {
+      const entity = await getCachedEntity(userId);
+      const options = { message: part, parse_mode: 'Markdown' };
+      if (isFirst && replyToMsgId) options.replyTo = replyToMsgId;
+      await client.sendMessage(entity, options);
+      console.log('✅ تم إرسال الجزء', i+1, '/', finalParts.length);
+      sent = true;
+    } catch (e) {
+      console.error('❌ فشل إرسال الجزء', i+1, ':', e.message);
+    }
+    if (i < finalParts.length - 1) {
+      console.log('⏳ انتظار 40 ثانية قبل إرسال الجزء التالي...');
+      await new Promise(resolve => setTimeout(resolve, 40000));
+    }
+  }
+  return sent;
+}
+
+function normalizeText(text) {
+  let normalized = text.normalize('NFKD').replace(/[\u064B-\u065F\u0617-\u061A\u06D6-\u06ED]/g, '');
+  normalized = normalized.replace(/[أإآ]/g, 'ا');
+  normalized = normalized.replace(/ة/g, 'ه');
+  normalized = normalized.replace(/[،؛؟!\.\-\"\']/g, ' ');
+  normalized = normalized.replace(/\s+/g, ' ');
+  return normalized.trim().toLowerCase();
+}
+
+function isGreeting(text) {
+  const greetings = ['السلام عليكم', 'سلام', 'مرحبا', 'أهلا', 'هلا', 'الو', 'هلو', 'صباح الخير', 'مساء الخير', 'يا هلا', 'هاي', 'كيفك', 'كيف حالك', 'كيف الحال', 'اخبارك', 'شو اخبارك', 'شحالك', 'وشحالك'];
+  const normalized = normalizeText(text);
+  for (const g of greetings) {
+    if (normalized.includes(normalizeText(g))) return true;
+  }
+  return false;
+}
+
+function getGreetingReply(text) {
+  const lower = normalizeText(text);
+  if (lower.includes('السلام عليكم')) return 'وعليكم السلام ورحمة الله وبركاته';
+  if (lower.includes('سلام')) return 'وعليكم السلام';
+  if (lower.includes('مرحبا') || lower.includes('أهلا') || lower.includes('هلا')) return 'أهلاً بك';
+  if (lower.includes('هاي') || lower.includes('الو') || lower.includes('هلو')) return 'أهلاً';
+  if (lower.includes('صباح الخير')) return 'صباح النور';
+  if (lower.includes('مساء الخير')) return 'مساء النور';
+  if (lower.includes('كيفك') || lower.includes('كيف حالك') || lower.includes('كيف الحال') || lower.includes('شحالك') || lower.includes('وشحالك')) {
+    return 'بخير الحمد لله';
+  }
+  if (lower.includes('اخبارك') || lower.includes('شو اخبارك')) return 'الحمد لله بخير';
+  return 'أهلاً بك';
+}
+
+function getPromptMessage() {
+  const prompts = [
+    'أي سؤال أو استفسار تفضل، أنا هنا لمساعدتك.',
+    'كيف يمكنني مساعدتك اليوم؟ تفضل بطرح سؤالك.',
+    'أخبرني ماذا تريد معرفته عن DXN، سأكون سعيداً بمساعدتك.',
+    'تفضل، اسأل عن أي شيء يخص DXN وأنا هنا للإجابة.'
+  ];
+  return prompts[Math.floor(Math.random() * prompts.length)];
+}
+
+const conversationMemory = new Map();
+const lastReplyCache = new Map();
+
+function getMemory(userId) {
+  if (!conversationMemory.has(userId)) {
+    conversationMemory.set(userId, []);
+  }
+  return conversationMemory.get(userId);
+}
+
+function addToMemory(userId, role, content) {
+  const mem = getMemory(userId);
+  mem.push({ role, content });
+  if (mem.length > 25) mem.shift();
+}
+
+function getContext(userId) {
+  return getMemory(userId).slice(-25);
+}
+
+function getLastReply(userId) {
+  return lastReplyCache.get(userId) || null;
+}
+function setLastReply(userId, reply) {
+  lastReplyCache.set(userId, reply);
+}
+
+// ===== كشف طلب الملفات =====
+function detectPDFRequest(text) {
+  const lower = text.toLowerCase();
+  if (lower.includes('منتج') || lower.includes('كتالوج') || lower.includes('المنتجات') || lower.includes('روعة')) {
+    return { key: 'products', topic: 'المنتجات' };
+  }
+  if (lower.includes('خطة مالية') || lower.includes('الخطة المالية') || lower.includes('مالية') || lower.includes('أرباح') || lower.includes('عمولة') || lower.includes('دخل')) {
+    return { key: 'financial', topic: 'الخطة المالية' };
+  }
+  if (lower.includes('خطة تسويقية') || lower.includes('الخطة التسويقية') || lower.includes('تسويق') || lower.includes('استراتيجية')) {
+    return { key: 'marketing', topic: 'الخطة التسويقية' };
+  }
+  const companyKeywords = ['تعريف', 'الشركة', 'دي اكس ان', 'دي إكس ان', 'dxn', 'برنامج تعريفي', 'عن dxn', 'عن دي اكس ان', 'ما هي dxn', 'ما هو dxn', 'ما هي دي اكس ان', 'ما هو دي اكس ان', 'ما هي شركة', 'ما هو شركة', 'تعرف', 'تعرف على', 'تعريف بالشركة', 'نبذة عن', 'معلومات عن'];
+  for (const kw of companyKeywords) {
+    if (lower.includes(kw)) {
+      return { key: 'intro', topic: 'شركة DXN' };
+    }
+  }
+  return null;
+}
+
+async function getFastReply(question, contextStr) {
+  let reply = null;
+  try {
+    console.log('⚡ Trying chatWithModels (fast)...');
+    const results = await extra.chatWithModels(question, MARWAN_PROMPT.replace(/{context}/g, contextStr || 'لا يوجد سياق سابق').replace(/{question}/g, question));
+    for (const r of results) {
+      if (r.answer && r.answer.trim().length > 0) {
+        reply = r.answer;
+        console.log('✅ Got reply from', r.model);
+        break;
+      }
+    }
+  } catch (e) {
+    console.log('⏳ chatWithModels error:', e.message);
+  }
+  if (!reply) {
+    try {
+      console.log('⚡ Trying chatWithChatX (fast)...');
+      const result = await extra.chatWithChatX(question, 'gemini');
+      if (result.answer && result.answer.trim().length > 0) {
+        reply = result.answer;
+        console.log('✅ Got reply from ChatX');
+      }
+    } catch (e) {
+      console.log('⏳ chatWithChatX error:', e.message);
+    }
+  }
+  if (!reply) {
+    try {
+      console.log('⚡ Falling back to multiSearch (fast)...');
+      const results = await extra.multiSearch(question);
+      for (const r of results) {
+        if (r.answer && r.answer.trim().length > 0) {
+          reply = r.answer;
+          console.log('✅ Got reply from multiSearch');
+          break;
+        }
+      }
+    } catch (e) {
+      console.log('⏳ multiSearch error:', e.message);
+    }
+  }
+  if (!reply) reply = 'عذراً، لم أستطع معالجة سؤالك حالياً. يرجى إعادة صياغته.';
+  return reply;
+}
+
+async function getReply(userId, question, msgId) {
+  const context = getContext(userId);
+  const contextStr = context.map(m => `${m.role}: ${m.content}`).join('\n');
+  const lastReply = getLastReply(userId);
+
+  const pdfRequest = detectPDFRequest(question);
+  if (pdfRequest) {
+    console.log('📄 تم الكشف عن طلب ملف:', pdfRequest.topic);
+    console.log('🔑 مفتاح الملف:', pdfRequest.key);
+  }
+
+  let reply = await getFastReply(question, contextStr);
+  reply = cleanText(reply);
+  reply = reply.replace(/[#*_|~`>+=]/g, '');
+  reply = reply.replace(/هذه المعلومات مأخوذة من ملفات DXN/gi, '');
+  reply = reply.replace(/من ملفات DXN/gi, '');
+  reply = reply.replace(/وفقاً للمعلومات/gi, '');
+  reply = reply.replace(/^مروان:\s*/gi, '');
+
+  if (pdfRequest) {
+    reply = reply + `\n\n📄 *سأرسل لك ملفاً يحتوي على تفاصيل أكثر عن ${pdfRequest.topic}. يمكنك الاطلاع عليه للمزيد.*`;
+  }
+
+  if (lastReply && reply === lastReply) {
+    const alternatives = [
+      'هل هناك تفاصيل إضافية تود معرفتها؟',
+      'أخبرني ما الذي تريد معرفة المزيد عنه.',
+      'هل لديك أي استفسار آخر؟'
+    ];
+    reply = alternatives[Math.floor(Math.random() * alternatives.length)];
+  }
+
+  await sendLongMessage(userId, reply, msgId);
+
+  if (pdfRequest) {
+    await sendPDF(userId, pdfRequest.key, `📄 ${pdfRequest.topic}`, msgId);
+  }
+
+  setLastReply(userId, reply);
+  return null;
+}
+
+export async function initTelegram() {
+  try {
+    const sessionString = process.env.SESSION_STRING || '';
+    const session = new StringSession(sessionString);
+    client = new TelegramClient(session, API_ID, API_HASH, TELEGRAM_OPTIONS);
+    await client.start({
+      phoneNumber: async()=>PHONE,
+      password: async()=>{ logger.info('🔐 2FA'); return await input.text('Password: '); },
+      phoneCode: async()=>{ logger.info('📱 Code sent'); return await input.text('Code: '); },
+      onError: (e)=>{ logger.error('Start error: '+e.message); throw e; }
+    });
+    await fs.writeFile(path.join(SESSION_DIR, 'session.txt'), client.session.save());
+    const me = await client.getMe();
+    logger.info(`👤 Logged as ${me.firstName} (${me.id})`);
+    setupListener();
+    return client;
+  } catch(e) { logger.errorWithContext('Telegram init failed', e); throw e; }
+}
+
+function setupListener() {
+  if(!client) throw new Error('No client');
+  client.addEventHandler(async (event) => {
+    try {
+      if (!event || !event.message) return;
+      if (event.message.fromId?.isBot) return;
+
+      const msg = event.message;
+      let userId = null, chatId = null, text = null;
+
+      if (event.userId) {
+        userId = parseInt(event.userId);
+        chatId = userId;
+        text = event.message || event.text;
+      } else if (msg.chatId) {
+        chatId = msg.chatId;
+        userId = msg.fromId?.userId || chatId;
+        text = msg.text || msg.message;
+      } else if (msg.peerId) {
+        userId = msg.peerId.userId || msg.peerId.chatId;
+        chatId = userId;
+        text = msg.text || msg.message;
+      } else if (msg.fromId) {
+        userId = msg.fromId.userId;
+        chatId = userId;
+        text = msg.text || msg.message;
+      }
+
+      if (!userId || !chatId) return;
+      if (chatId < 0) {
+        console.log(`⏭️ Skipping group ${chatId}`);
+        return;
+      }
+      if (!text) text = 'وسائط';
+
+      console.log(`📩 Private chat from ${userId}`);
+      console.log(`📝 Raw text: "${text}"`);
+
+      addToMemory(userId, 'user', text);
+
+      if (isGreeting(text)) {
+        const greeting = getGreetingReply(text);
+        console.log(`✅ Greeting reply: "${greeting}"`);
+        addToMemory(userId, 'assistant', greeting);
+        await sendLongMessage(userId, greeting, msg.id);
+
+        const promptMsg = getPromptMessage();
+        console.log(`✅ Prompt message: "${promptMsg}"`);
+        addToMemory(userId, 'assistant', promptMsg);
+        await sendLongMessage(userId, promptMsg, null);
+        return;
+      }
+
+      const startTime = Date.now();
+      console.log('⚡ Getting fast reply...');
+      await getReply(userId, text, msg.id);
+      console.log(`⚡ Total time: ${Date.now() - startTime}ms`);
+
+    } catch(e) {
+      console.error('Handler error:', e);
+    }
+  });
+  logger.info('👂 Listening (ultra fast mode)');
+}
+
+export function getClient() { return client; }
+export default { initTelegram, getClient };
+===== FILE: ./extra.js =====
+import axios from 'axios';
+import { logger } from './logger.js';
+import { generateId } from './config.js';
+import * as cheerio from 'cheerio';
+import fs from 'fs-extra';
+import path from 'path';
+import dotenv from 'dotenv';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+dotenv.config({ path: path.join(__dirname, '.env') });
+
+const FIREBASE_KEY = process.env.FIREBASE_KEY;
+const EXTRA_ACCESS_TOKEN = process.env.EXTRA_ACCESS_TOKEN;
+
+console.log('🔑 extra.js - FIREBASE_KEY:', FIREBASE_KEY ? 'موجود' : 'مفقود');
+console.log('🔑 extra.js - EXTRA_ACCESS_TOKEN:', EXTRA_ACCESS_TOKEN ? 'موجود' : 'مفقود');
+
+// ===== multiSearch (مهلة 5 ثوانٍ فقط) =====
+let firebaseToken = null, tokenExpiry = 0;
+async function getFirebaseToken() {
+  if (firebaseToken && Date.now() < tokenExpiry-60000) return firebaseToken;
+  if (!FIREBASE_KEY) throw new Error('FIREBASE_KEY missing');
+  const resp = await axios.post(
+    'https://www.googleapis.com/identitytoolkit/v3/relyingparty/signupNewUser',
+    { clientType: 'CLIENT_TYPE_ANDROID' },
+    { params: { key: FIREBASE_KEY }, headers: {
+      'User-Agent':'Dalvik/2.1.0 (Linux; U; Android 16; 2311DRK48G)',
+      'Content-Type':'application/json',
+      'X-Android-Package':'com.lmtechstudio.aimultisearch',
+      'X-Android-Cert':'5D08264B44E0E53FBCCC70B4F016474CC6C5AB5C'
+    }, timeout: 4000 }
+  );
+  const data = resp.data;
+  firebaseToken = 'Bearer '+data.idToken;
+  tokenExpiry = Date.now() + parseInt(data.expiresIn)*1000;
+  return firebaseToken;
+}
+
+const SEARCH_CFG = {
+  perplexity: { app_version:'1.2.8', search_id:'825a35c5-aac2-49d7-8317-5b7a68ae6cae' },
+  openai: { app_version:'DEV_TEST', search_id:'f0a6705c-e33e-4288-a3ef-c91cd6564b59' },
+  deepseek: { app_version:'1.2.8', search_id:'f0a6705c-e33e-4288-a3ef-c91cd6564b59' },
+  gemini: { app_version:'1.2.8', search_id:'b2ed082e-5793-4de0-9e42-c8c7fb57b5d5' },
+};
+
+export async function multiSearch(query) {
+  const token = await getFirebaseToken();
+  const results = [];
+  for (const [provider, cfg] of Object.entries(SEARCH_CFG)) {
+    const payload = { provider, prompt: query, plan:'ULTRA', app_version:cfg.app_version };
+    try {
+      const resp = await axios.post('https://ai-multi-search-backend-321697147922.europe-west6.run.app/ask', payload, {
+        headers: { 'authorization':token, 'x-plan':'ULTRA', 'x-app-version':cfg.app_version, 'x-search-id':cfg.search_id, 'content-type':'application/json' },
+        timeout: 5000
+      });
+      const data = resp.data;
+      results.push({ provider, answer: data.ok ? data.answer : null, error: data.ok ? null : data.message });
+    } catch(e) { results.push({ provider, answer:null, error:e.message }); }
+  }
+  return results;
+}
+
+// ===== chatWithModels (مهلة 6 ثوانٍ فقط) =====
+const MODELS = [
+  'openai/gpt-5-mini',
+  'google/gemini-2.5-flash-lite',
+  'qwen/qwen-coder-32b',
+];
+
+export async function chatWithModels(query, systemPrompt = null) {
+  if (!EXTRA_ACCESS_TOKEN) throw new Error('EXTRA_ACCESS_TOKEN missing');
+  const results = [];
+  const headers = {
+    'User-Agent':'okhttp/4.12.0',
+    'Accept':'text/event-stream',
+    'Content-Type':'application/json',
+    'x-app-id':'ai-seek',
+    'x-access-token':EXTRA_ACCESS_TOKEN,
+    'x-device-info':'appIdentifier=ai.chatbot.ask.chat.deep.seek.assistant.search.free;appVersion=2.7.1-26042486;deviceType=android;deviceCountry=EG;local=ar_EG;brand=POCO;model=2311DRK48G'
+  };
+  const sessionId = '019def83-b582-7410-95dd-b747cc648582';
+  const userMsgId = generateId();
+  const finalText = systemPrompt ? `${systemPrompt}\n\n${query}` : query;
+
+  for (const model of MODELS) {
+    const payload = {
+      sessionId,
+      userMessageId: userMsgId,
+      aiMessageId: generateId(),
+      model,
+      text: finalText,
+      restrictedType: 'FREE_USER',
+      sessionType: 'NORMAL'
+    };
+    try {
+      const resp = await axios.post('https://ai-seek.thebetter.ai/v4/chat/send', payload, { headers, responseType:'stream', timeout: 6000 });
+      let answer = '';
+      await new Promise((res, rej) => {
+        const timeout = setTimeout(() => { resp.data.destroy(); rej(new Error('Timeout')); }, 5000);
+        resp.data.on('data', chunk => {
+          const lines = chunk.toString().split('\n');
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const j = JSON.parse(line.slice(6));
+                if (j.content) answer += j.content;
+              } catch(e) {}
+            }
+          }
+        });
+        resp.data.on('end', () => { clearTimeout(timeout); res(); });
+        resp.data.on('error', (e) => { clearTimeout(timeout); rej(e); });
+      });
+      results.push({ model, answer: answer.trim() || null, source: 'ai-seek' });
+    } catch(e) {
+      results.push({ model, answer: null, error: e.message, source: 'ai-seek' });
+    }
+  }
+  return results;
+}
+
+// ===== chatWithChatX (سريع) =====
+export async function chatWithChatX(query, model = 'gemini') {
+  const s = axios.create({ withCredentials: true, timeout: 6000 });
+  try {
+    const home = await s.get('https://chatx.ai', {
+      headers: { 'User-Agent':'Mozilla/5.0 (Linux; Android 10; K) Chrome/139.0.0.0 Mobile Safari/537.36', 'Accept':'text/html', 'sec-ch-ua-mobile':'?1' },
+      timeout: 4000
+    });
+    const $ = cheerio.load(home.data);
+    const csrf = $('meta[name="csrf-token"]').attr('content');
+    const cookies = home.headers['set-cookie'] || [];
+    let xsrf='', laravel='';
+    for (const c of cookies) {
+      if (c.startsWith('XSRF-TOKEN=')) xsrf = c.split(';')[0].split('=')[1];
+      if (c.startsWith('laravel_session=')) laravel = c.split(';')[0].split('=')[1];
+    }
+    const chatRes = await s.post('https://chatx.ai/openconversions',
+      { _token: csrf, id: '45745489', page: '1' },
+      { headers: { 'x-csrf-token': csrf, 'x-requested-with':'XMLHttpRequest', 'Cookie': `XSRF-TOKEN=${xsrf}; laravel_session=${laravel}` }, timeout: 4000 }
+    );
+    const chatId = chatRes.data.chats?.id || '45745489';
+    const userId = chatRes.data.chats?.user_id || '406994163226';
+    const sendRes = await s.post('https://chatx.ai/sendchat',
+      { _token: csrf, user_id: userId, chats_id: chatId, prompt: query, current_model: model, is_web:'0', is_youtube:'0' },
+      { headers: { 'x-csrf-token': csrf, 'x-requested-with':'XMLHttpRequest', 'Cookie': `XSRF-TOKEN=${xsrf}; laravel_session=${laravel}` }, timeout: 4000 }
+    );
+    const convId = sendRes.data.conversions_id;
+    const assConvId = sendRes.data.ass_conversions_id;
+    const streamRes = await s.get('https://chatx.ai/chats_stream', {
+      params: { user_id: userId, chats_id: chatId, current_model: model, conversions_id: convId, ass_conversions_id: assConvId },
+      headers: { 'User-Agent':'Mozilla/5.0 (Linux; Android 10; K) Chrome/139.0.0.0 Mobile Safari/537.36', 'Accept':'text/event-stream', 'Cookie': `XSRF-TOKEN=${xsrf}; laravel_session=${laravel}` },
+      responseType: 'stream',
+      timeout: 5000
+    });
+    let full = '';
+    await new Promise((res, rej) => {
+      const timeout = setTimeout(() => { streamRes.data.destroy(); rej(new Error('Timeout')); }, 4000);
+      streamRes.data.on('data', chunk => {
+        const lines = chunk.toString().split('\n');
+        for (const line of lines) {
+          if (line && line.startsWith('data: ') && line.slice(6) !== 'end') {
+            try {
+              const o = JSON.parse(line.slice(6));
+              if (o.type === 'response.output_text.delta') full += o.delta || '';
+            } catch(e) {}
+          }
+        }
+      });
+      streamRes.data.on('end', () => { clearTimeout(timeout); res(); });
+      streamRes.data.on('error', (e) => { clearTimeout(timeout); rej(e); });
+    });
+    return { answer: full.trim(), model, source: 'chatx' };
+  } catch(e) {
+    return { answer: null, model, source: 'chatx', error: e.message };
+  }
+}
+
+export async function generateImage(prompt) { throw new Error('Not implemented'); }
+export async function textToSpeech(text) { throw new Error('Not implemented'); }
+
+export default { multiSearch, chatWithModels, chatWithChatX, generateImage, textToSpeech };
+===== FILE: ./index.js =====
+import dotenv from 'dotenv';
+dotenv.config();
+
+import express from 'express';
+import { logger } from './logger.js';
+import { initTelegram } from './telegram.js';
+import { initCache } from './utils.js';
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+async function initApp() {
+  try {
+    console.log('🔥 Starting DXN Assistant on Render...');
+    initCache();
+    await initTelegram();
+
+    app.get('/', (req, res) => res.send('DXN Assistant is running! ✅'));
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`🌐 Server running on port ${PORT}`);
+    });
+  } catch (error) {
+    console.error('❌ Startup failed:', error);
+    process.exit(1);
+  }
+}
+
+process.on('uncaughtException', (err) => console.error('Uncaught:', err));
+process.on('unhandledRejection', (err) => console.error('Unhandled:', err));
+
+initApp();
+===== FILE: ./Dockerfile =====
+FROM node:18-alpine
+WORKDIR /app
+COPY package*.json ./
+RUN npm install --production
+COPY . .
+EXPOSE 3000
+CMD ["npm", "start"]
+===== FILE: ./render.yaml =====
+services:
+  - type: web
+    name: dxn-assistant1
+    env: node
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: API_ID
+        value: 10576791
+      - key: API_HASH
+        value: 6fcc05f1581fb6ec95ea99d39fa3a14a
+      - key: PHONE
+        value: +967770256885
+      - key: SESSION_STRING
+        value: 1BAAOMTQ5LjE1NC4xNjcuOTEBuy5uuuQMbZl2KG4PSFPX4IfQHPe+MjltjvDX/wTfQtWfiE49Tn+fzTeEwrvu9GH6pvm/a+ImwjPn/COwtUE+fFxgUm/J4ivZGoFx7nXaTyzrLXg4WyIPyj9wJ44z3wmEksfwPQgW2/1dEpYRWIOI+ROAueRobHzzAUwe8ZE3vBZ+6r5RA26jmF6v6vx7i+miIznhs1ut12n3RH2HXcMvTdivgdodRBaeeFdcwsaWpSrnLzVDDDPa76a2x8zg3kVmLwVWxmIU7bsaoSaFAim93kD2yd3JXLxRFGFAymKjQBz6U1F8Jd+jprrOgoDY5xoawwSA1LKeMibvWbRgfYSS8fk
+      - key: MONGO_URI
+        value: mongodb+srv://mohammed770256885ali_db_user:r0nrLsof6O2IzkmN@mrowanz.ncw3zjv.mongodb.net/?appName=mrowanz
+      - key: FIREBASE_KEY
+        value: AIzaSyA27E7jUV8osRY7NzwP2fZwGoTkp5gJhZw
+      - key: EXTRA_ACCESS_TOKEN
+        value: eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJBUy1YNkNZUiIsImF1ZCI6ImFpLXNlZWsiLCJwcm92aWRlciI6InV1aWQiLCJpc3MiOiJhaS1zZWVrIiwiZXhwIjoyMDkzMTk5ODY1LCJpYXQiOjE3Nzc4Mzk4NjV9.w2wlNLg2S-om4xqWmakO2tEUjiPjxtGwFozmoI217VUu7KGC1O3qaL7KdyEIBYrGxIZV3lMWospZPPgVOYJjOeDgKBFnhg1_7NRKfmCEum_0moUEqH6dGFtQUQixDi63k63wv6GhOs1Sorj6hLzdBxX6NHU6otOo6brls5UNYbc
+      - key: ASSISTANT_NAME
+        value: مساعد DXN
+      - key: DASHBOARD_PASSWORD
+        value: admin123
+      - key: PORT
+        value: 10000
+===== FILE: ./rag.js =====
+import fs from 'fs-extra';
+import path from 'path';
+import pdfParse from 'pdf-parse';
+
+const KNOWLEDGE_DIR = path.join(process.cwd(), 'knowledge');
+const PDF_DIR = path.join(KNOWLEDGE_DIR, 'pdfs');
+
+// ===== استخراج النص من PDF =====
+async function extractPDFText(filePath) {
+  try {
+    const dataBuffer = await fs.readFile(filePath);
+    const data = await pdfParse(dataBuffer);
+    return data.text;
+  } catch (e) {
+    console.error('PDF parse error:', e.message);
+    return '';
+  }
+}
+
+// ===== تنظيف النص المستخرج =====
+function cleanText(text) {
+  if (!text) return '';
+  return text
+    .replace(/[\u0000-\u001F\u007F-\u009F]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/[^\w\s\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF.,?!:;()\-\n]/g, ' ')
+    .trim();
+}
+
+// ===== تحميل جميع المعرفة (مرة واحدة عند بدء التشغيل) =====
+let KNOWLEDGE_CACHE = null;
+
+export async function loadKnowledge() {
+  if (KNOWLEDGE_CACHE) return KNOWLEDGE_CACHE;
+  
+  console.log('📚 جاري تحميل الملفات...');
+  let allText = '';
+  
+  // قراءة ملفات TXT و MD
+  const mainFiles = await fs.readdir(KNOWLEDGE_DIR).catch(() => []);
+  for (const file of mainFiles) {
+    if (file.endsWith('.txt') || file.endsWith('.md')) {
+      const content = await fs.readFile(path.join(KNOWLEDGE_DIR, file), 'utf-8').catch(() => '');
+      if (content) allText += cleanText(content) + '\n';
+    }
+  }
+  
+  // قراءة ملفات PDF
+  const pdfFiles = await fs.readdir(PDF_DIR).catch(() => []);
+  for (const file of pdfFiles) {
+    if (file.endsWith('.pdf')) {
+      console.log(`📄 قراءة PDF: ${file}`);
+      const content = await extractPDFText(path.join(PDF_DIR, file));
+      if (content) allText += cleanText(content) + '\n';
+    }
+  }
+  
+  KNOWLEDGE_CACHE = allText;
+  console.log(`✅ تم تحميل ${KNOWLEDGE_CACHE.length} حرف من المعرفة`);
+  return KNOWLEDGE_CACHE;
+}
+
+// ===== البحث عن معلومات ذات صلة بالسؤال =====
+export async function searchInFiles(query) {
+  const allText = await loadKnowledge();
+  if (!allText || allText.length < 50) return { answer: null, context: null };
+  
+  // تقسيم النص إلى فقرات
+  const paragraphs = allText.split(/\n\s*\n/).filter(p => p.trim().length > 20);
+  const keywords = query.split(/\s+/).filter(w => w.length > 2);
+  
+  const scored = paragraphs.map(p => {
+    let score = 0;
+    const lower = p.toLowerCase();
+    for (const kw of keywords) {
+      if (lower.includes(kw.toLowerCase())) score += 5;
+    }
+    if (lower.includes(query.toLowerCase())) score += 20;
+    if (lower.includes('dxn') || lower.includes('دي اكس ان')) score += 15;
+    if (lower.includes('فرصة') || lower.includes('عمل') || lower.includes('تسويق')) score += 10;
+    return { content: p.trim(), score };
+  });
+  
+  scored.sort((a, b) => b.score - a.score);
+  const top = scored.filter(p => p.score > 5);
+  
+  if (top.length === 0) return { answer: null, context: null };
+  
+  let context = '';
+  for (let i = 0; i < Math.min(top.length, 6); i++) {
+    context += top[i].content + '\n\n';
+  }
+  return { answer: context.trim(), context: context.trim() };
+}
+
+export default { loadKnowledge, searchInFiles };
