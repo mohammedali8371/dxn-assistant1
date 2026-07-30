@@ -162,27 +162,17 @@ async function handlePriceQuery(userId, question, msgId) {
     return;
   }
 
-  // 1. إرسال الصورة
-  try {
-    const imageBuffer = rag.generatePriceImage(results, question);
-    const entity = await getCachedEntity(userId);
-    await client.sendMessage(entity, {
-      file: imageBuffer,
-      caption: `📊 *نتائج البحث عن: "${question}"*`
-    });
-  } catch (e) {
-    console.error('❌ فشل إنشاء الصورة:', e);
-    const reply = rag.formatPriceReply(results, question);
-    await sendLongMessage(userId, reply, msgId);
-  }
+  // 1. إرسال الجدول النصي
+  const table = rag.generatePriceTable(results, question);
+  await sendLongMessage(userId, table, msgId);
 
-  // 2. إرسال رسالة نصية تأكيدية
-  await sendLongMessage(userId, `📎 *سأرسل لك ملف PDF الآن لتطلع على القائمة الكاملة.*`);
+  // 2. إرسال رسالة تأكيدية
+  await sendLongMessage(userId, `📎 *جاري إرسال ملف PDF الآن لتطلع على القائمة الكاملة...*`);
 
   // 3. إرسال ملف PDF
   const sent = await rag.sendPriceListPDF(userId, client);
   if (!sent) {
-    await sendLongMessage(userId, '⚠️ تعذر إرسال ملف PDF، لكن يمكنك طلب المساعدة.', null);
+    await sendLongMessage(userId, '⚠️ تعذر إرسال ملف PDF، لكن يمكنك طلب المساعدة من الإدارة.', null);
   }
 }
 

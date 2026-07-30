@@ -1,7 +1,6 @@
 import fs from 'fs-extra';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { createCanvas } from 'canvas';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -82,70 +81,28 @@ export function searchPriceList(query) {
   return results.slice(0, 10);
 }
 
-export function generatePriceImage(products, query) {
-  const rowHeight = 48;
-  const padding = 12;
-  const cols = [280, 80, 90, 80];
-  const totalWidth = cols.reduce((a, b) => a + b + padding, padding);
-  const totalHeight = (products.length + 2) * rowHeight + padding * 2;
-
-  const canvas = createCanvas(totalWidth, totalHeight);
-  const ctx = canvas.getContext('2d');
-
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, totalWidth, totalHeight);
-
-  ctx.strokeStyle = '#1e3a5f';
-  ctx.lineWidth = 1.5;
-  ctx.strokeRect(1, 1, totalWidth - 2, totalHeight - 2);
-
-  const headers = ['المنتج', 'العضو', 'غير عضو', 'النقاط'];
-  const headerColors = ['#1e3a5f', '#2c5282', '#2c5282', '#2c5282'];
-  ctx.font = 'bold 14px Arial, sans-serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  let x = padding;
-  for (let i = 0; i < headers.length; i++) {
-    ctx.fillStyle = headerColors[i];
-    ctx.fillRect(x, padding, cols[i], rowHeight);
-    ctx.fillStyle = '#ffffff';
-    ctx.fillText(headers[i], x + cols[i]/2, padding + rowHeight/2);
-    x += cols[i] + padding;
-  }
-
-  let y = padding + rowHeight + 4;
-  ctx.font = '12px Arial, sans-serif';
-  for (const p of products) {
-    if ((products.indexOf(p) % 2) === 0) {
-      ctx.fillStyle = '#f0f4f8';
-      ctx.fillRect(padding, y, totalWidth - padding*2, rowHeight - 4);
-    }
-    ctx.fillStyle = '#000000';
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'middle';
-    const name = `${p.en}`;
-    ctx.fillText(name.substring(0, 30), x + 4, y + rowHeight/2 - 6);
-    ctx.font = '10px Arial, sans-serif';
-    ctx.fillStyle = '#4a5568';
-    ctx.fillText(p.ar.substring(0, 30), x + 4, y + rowHeight/2 + 12);
-    ctx.font = '12px Arial, sans-serif';
-    ctx.fillStyle = '#000000';
-    x += cols[0] + padding;
-    ctx.textAlign = 'center';
-    const values = [p.dp.toFixed(2), p.rp.toFixed(2), p.pv.toFixed(2)];
-    for (let i = 0; i < values.length; i++) {
-      ctx.fillText(values[i], x + cols[i+1]/2, y + rowHeight/2);
-      x += cols[i+1] + padding;
-    }
-    y += rowHeight + 4;
-  }
-
-  return canvas.toBuffer('image/png');
-}
-
-export function formatPriceReply(products, query) {
+export function generatePriceTable(products, query) {
   if (!products.length) return `🔍 لم أجد منتجات تطابق "${query}".`;
-  return `📊 *نتائج البحث عن: "${query}"*\n(الصورة أدناه)\n\n📎 *سأرسل لك الملف الآن لتطلع على القائمة الكاملة.*`;
+  let table = `📊 *نتائج البحث عن: "${query}"*\n\n`;
+  table += "```\n";
+  table += "┌────┬──────────────────────────────────────────────────┬──────────┬──────────┬────────┐\n";
+  table += "│ #  │ المنتج                                           │ العضو   │ غير عضو │ النقاط │\n";
+  table += "├────┼──────────────────────────────────────────────────┼──────────┼──────────┼────────┤\n";
+  let i = 1;
+  for (const p of products) {
+    const name = `${p.en}\n${p.ar}`;
+    const lines = name.split('\n');
+    table += `│ ${String(i).padStart(2)} │ ${lines[0].padEnd(48)}│ ${p.dp.toFixed(2).padStart(8)} │ ${p.rp.toFixed(2).padStart(8)} │ ${p.pv.toFixed(2).padStart(6)} │\n`;
+    if (lines[1]) {
+      table += `│    │ ${lines[1].padEnd(48)}│          │          │        │\n`;
+    }
+    i++;
+  }
+  table += "└────┴──────────────────────────────────────────────────┴──────────┴──────────┴────────┘\n";
+  table += "```\n";
+  table += `📌 *تم عرض ${products.length} منتج من أصل ${priceData.length} منتج.*\n`;
+  table += `\n📎 *سأرسل لك الملف الآن لتطلع على القائمة الكاملة.*`;
+  return table;
 }
 
 export async function sendPriceListPDF(userId, client) {
@@ -199,4 +156,4 @@ export async function searchInFiles(query) {
   return { answer: context, context };
 }
 
-export default { loadKnowledge, searchInFiles, loadPriceList, searchPriceList, generatePriceImage, formatPriceReply, sendPriceListPDF };
+export default { loadKnowledge, searchInFiles, loadPriceList, searchPriceList, generatePriceTable, sendPriceListPDF };
