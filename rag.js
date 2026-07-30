@@ -84,23 +84,15 @@ export function searchPriceList(query) {
 export function generatePriceTable(products, query) {
   if (!products.length) return `🔍 لم أجد منتجات تطابق "${query}".`;
   let table = `📊 *نتائج البحث عن: "${query}"*\n\n`;
-  table += "```\n";
-  table += "┌────┬──────────────────────────────────────────────────┬──────────┬──────────┬────────┐\n";
-  table += "│ #  │ المنتج                                           │ العضو   │ غير عضو │ النقاط │\n";
-  table += "├────┼──────────────────────────────────────────────────┼──────────┼──────────┼────────┤\n";
+  table += "| # | المنتج | سعر العضو | سعر غير العضو | النقاط |\n";
+  table += "|---|--------|-----------|---------------|--------|\n";
   let i = 1;
   for (const p of products) {
     const name = `${p.en}\n${p.ar}`;
-    const lines = name.split('\n');
-    table += `│ ${String(i).padStart(2)} │ ${lines[0].padEnd(48)}│ ${p.dp.toFixed(2).padStart(8)} │ ${p.rp.toFixed(2).padStart(8)} │ ${p.pv.toFixed(2).padStart(6)} │\n`;
-    if (lines[1]) {
-      table += `│    │ ${lines[1].padEnd(48)}│          │          │        │\n`;
-    }
+    table += `| ${i} | ${name} | ${p.dp.toFixed(2)} $ | ${p.rp.toFixed(2)} $ | ${p.pv.toFixed(2)} P.V |\n`;
     i++;
   }
-  table += "└────┴──────────────────────────────────────────────────┴──────────┴──────────┴────────┘\n";
-  table += "```\n";
-  table += `📌 *تم عرض ${products.length} منتج من أصل ${priceData.length} منتج.*\n`;
+  table += `\n📌 *تم عرض ${products.length} منتج من أصل ${priceData.length} منتج.*\n`;
   table += `\n📎 *سأرسل لك الملف الآن لتطلع على القائمة الكاملة.*`;
   return table;
 }
