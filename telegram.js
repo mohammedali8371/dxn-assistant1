@@ -6,6 +6,7 @@ import path from 'path';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import MARWAN_PROMPT from './prompts/marwan.js';
+import { generatePricePDF } from './rag.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -107,18 +108,34 @@ function formatReply(text) {
 
 async function sendPDF(userId, fileKey, caption, replyToMsgId = null) {
   const pdfDir = path.join(process.cwd(), 'knowledge', 'pdfs');
-  const fileName = PDF_FILES[fileKey];
+  let fileName = PDF_FILES[fileKey];
   if (!fileName) {
     console.log('⚠️ مفتاح الملف غير صحيح:', fileKey);
     return false;
   }
-  const filePath = path.join(pdfDir, fileName);
+  let filePath = path.join(pdfDir, fileName);
   console.log('📄 محاولة إرسال الملف:', fileName);
   console.log('📂 المسار الكامل:', filePath);
+
   if (!await fs.pathExists(filePath)) {
-    console.log('❌ الملف غير موجود في المسار:', filePath);
-    return false;
+    if (fileKey === 'products' || fileKey === 'price_list') {
+      console.log('⚠️ الملف غير موجود، سيتم إنشاء ملف ديناميكي.');
+      const pdfBytes = await generatePricePDF();
+      if (!pdfBytes) {
+        console.log('❌ فشل إنشاء ملف PDF ديناميكي');
+        return false;
+      }
+      const tempName = fileKey === 'price_list' ? 'قائمة_أسعار_DXN.pdf' : 'كتالوج_منتجات_DXN.pdf';
+      const tempPath = path.join(pdfDir, tempName);
+      await fs.writeFile(tempPath, pdfBytes);
+      filePath = tempPath;
+      fileName = tempName;
+    } else {
+      console.log('❌ الملف غير موجود ولا يوجد حل احتياطي:', fileKey);
+      return false;
+    }
   }
+
   try {
     const entity = await getCachedEntity(userId);
     const options = { file: filePath, caption: caption || '📄 ' + fileName };
@@ -195,7 +212,7 @@ async function sendLongMessage(userId, text, replyToMsgId = null) {
       console.error('❌ فشل إرسال الجزء', i+1, ':', e.message);
     }
     if (i < finalParts.length - 1) {
-      console.log('⏳ انتظار 40 ثانية قبل إرسال الجزء التالي...');
+      console.log('⏳ انتظار 5 ثوانٍ قبل إرسال الجزء التالي...');
       await new Promise(resolve => setTimeout(resolve, 5000));
     }
   }
@@ -247,6 +264,7 @@ function getPromptMessage() {
 
 const conversationMemory = new Map();
 const lastReplyCache = new Map();
+const sentFilesCache = new Map(); // تتبع الملفات المرسلة لكل مستخدم
 
 function getMemory(userId) {
   if (!conversationMemory.has(userId)) {
@@ -272,11 +290,34 @@ function setLastReply(userId, reply) {
   lastReplyCache.set(userId, reply);
 }
 
-// ===== كشف طلب الملفات (يدعم ملفات متعددة) =====
+// ===== دوال تتبع الملفات المرسلة =====
+function hasSentFile(userId, fileType) {
+  const userSent = sentFilesCache.get(userId) || {};
+  return userSent[fileType] || false;
+}
+
+function markFileSent(userId, fileType) {
+  const userSent = sentFilesCache.get(userId) || {};
+  userSent[fileType] = true;
+  sentFilesCache.set(userId, userSent);
+}
+
+function resetFileSent(userId, fileType) {
+  const userSent = sentFilesCache.get(userId) || {};
+  userSent[fileType] = false;
+  sentFilesCache.set(userId, userSent);
+}
+
+// ===== كشف طلب الملفات =====
 function detectPDFRequest(text) {
   const lower = text.toLowerCase();
 
-  // ===== طلب الأسعار أو المنتجات → إرسال ملفين (الأسعار + الكتالوج) =====
+  // طلب إعادة إرسال الملفات
+  if (lower.includes('ارسل الملف') || lower.includes('الملفات') || lower.includes('أرسل الملف') || lower.includes('اعادة ارسال')) {
+    return { keys: ['price_list', 'products'], topic: 'الأسعار والمنتجات', multi: true, forceResend: true };
+  }
+
+  // طلب الأسعار أو المنتجات
   if (
     lower.includes('سعر') || lower.includes('اسعار') ||
     lower.includes('منتج') || lower.includes('المنتجات') ||
@@ -284,23 +325,24 @@ function detectPDFRequest(text) {
     lower.includes('فوائد')
   ) {
     return {
-      keys: ['price_list', 'products'],     // ملف الأسعار + ملف الكتالوج
+      keys: ['price_list', 'products'],
       topic: 'الأسعار والمنتجات',
-      multi: true
+      multi: true,
+      forceResend: false
     };
   }
 
-  // ===== طلب ملفات منفردة أخرى =====
+  // طلب ملفات منفردة
   if (lower.includes('خطة مالية') || lower.includes('الخطة المالية') || lower.includes('مالية') || lower.includes('أرباح')) {
-    return { keys: ['financial'], topic: 'الخطة المالية', multi: false };
+    return { keys: ['financial'], topic: 'الخطة المالية', multi: false, forceResend: false };
   }
   if (lower.includes('خطة تسويقية') || lower.includes('الخطة التسويقية') || lower.includes('تسويق')) {
-    return { keys: ['marketing'], topic: 'الخطة التسويقية', multi: false };
+    return { keys: ['marketing'], topic: 'الخطة التسويقية', multi: false, forceResend: false };
   }
   const companyKeywords = ['تعريف', 'الشركة', 'دي اكس ان', 'دي إكس ان', 'dxn', 'برنامج تعريفي', 'عن dxn', 'ما هي dxn', 'ما هو dxn', 'ما هي دي اكس ان', 'ما هو دي اكس ان', 'ما هي شركة', 'ما هو شركة', 'تعرف', 'تعرف على', 'نبذة عن'];
   for (const kw of companyKeywords) {
     if (lower.includes(kw)) {
-      return { keys: ['intro'], topic: 'شركة DXN', multi: false };
+      return { keys: ['intro'], topic: 'شركة DXN', multi: false, forceResend: false };
     }
   }
   return null;
@@ -371,12 +413,24 @@ async function getReply(userId, question, msgId) {
   reply = reply.replace(/وفقاً للمعلومات/gi, '');
   reply = reply.replace(/^مروان:\s*/gi, '');
 
+  // التحقق من الملفات المرسلة مسبقاً
+  let shouldSendFiles = true;
+  let alreadySentMessage = '';
+
+  if (pdfRequest && !pdfRequest.forceResend) {
+    const sentPrice = hasSentFile(userId, 'price_list');
+    const sentCatalog = hasSentFile(userId, 'products');
+    if (sentPrice && sentCatalog) {
+      shouldSendFiles = false;
+      alreadySentMessage = '\n\n📌 *تم إرسال الملفات مسبقاً. إذا كنت ترغب في إعادة استلامها، اكتب "أرسل الملف".*';
+    }
+  }
+
   if (pdfRequest) {
-    // رسالة خاصة عند طلب الأسعار/المنتجات (ملفين)
     if (pdfRequest.multi) {
-      reply = reply + `\n\n📄 *سأرسل لك ملفين PDF يحتويان على الأسعار والفوائد وأنواع المنتجات. يمكنك الاطلاع عليهما للمزيد.*`;
+      reply = reply + `\n\n📄 *سأرسل لك ملفين PDF يحتويان على الأسعار والفوائد وأنواع المنتجات. يمكنك الاطلاع عليهما للمزيد.*${alreadySentMessage}`;
     } else {
-      reply = reply + `\n\n📄 *سأرسل لك ملفاً يحتوي على تفاصيل أكثر عن ${pdfRequest.topic}. يمكنك الاطلاع عليه للمزيد.*`;
+      reply = reply + `\n\n📄 *سأرسل لك ملفاً يحتوي على تفاصيل أكثر عن ${pdfRequest.topic}. يمكنك الاطلاع عليه للمزيد.*${alreadySentMessage}`;
     }
   }
 
@@ -391,12 +445,17 @@ async function getReply(userId, question, msgId) {
 
   await sendLongMessage(userId, reply, msgId);
 
-  // إرسال الملفات المطلوبة
-  if (pdfRequest) {
+  // إرسال الملفات فقط إذا لم تكن قد أرسلت من قبل أو كان الطلب بإعادة الإرسال
+  if (pdfRequest && shouldSendFiles) {
     for (const key of pdfRequest.keys) {
       const caption = pdfRequest.multi ? `📄 ${key === 'price_list' ? 'قائمة الأسعار' : 'كتالوج المنتجات'}` : `📄 ${pdfRequest.topic}`;
-      await sendPDF(userId, key, caption, msgId);
+      const success = await sendPDF(userId, key, caption, msgId);
+      if (success) {
+        markFileSent(userId, key);
+      }
     }
+  } else if (pdfRequest && !shouldSendFiles) {
+    console.log(`⏭️ تم تخطي إرسال الملفات لأنها أرسلت مسبقاً للمستخدم ${userId}`);
   }
 
   setLastReply(userId, reply);
