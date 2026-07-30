@@ -1,22 +1,12 @@
 import fs from 'fs-extra';
 import path from 'path';
-import pdfParse from 'pdf-parse';
+import { fileURLToPath } from 'url';
 
-const KNOWLEDGE_DIR = path.join(process.cwd(), 'knowledge');
-const PDF_DIR = path.join(KNOWLEDGE_DIR, 'pdfs');
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const KNOWLEDGE_DIR = path.join(__dirname, 'knowledge');
 
 let priceData = [];
-
-async function extractPDFText(filePath) {
-  try {
-    const dataBuffer = await fs.readFile(filePath);
-    const data = await pdfParse(dataBuffer);
-    return data.text;
-  } catch (e) {
-    console.error('PDF parse error:', e.message);
-    return '';
-  }
-}
 
 function parsePriceTable(text) {
   const lines = text.split('\n').filter(line => line.trim().length > 10);
@@ -51,7 +41,6 @@ function parsePriceTable(text) {
 }
 
 export async function loadPriceList() {
-  // أولاً: محاولة قراءة من ملف prices.txt (الأسهل والأسرع)
   const txtPath = path.join(KNOWLEDGE_DIR, 'prices.txt');
   if (await fs.pathExists(txtPath)) {
     console.log('📄 جاري تحميل قائمة الأسعار من prices.txt...');
@@ -61,19 +50,8 @@ export async function loadPriceList() {
     console.log(`✅ تم تحميل ${products.length} منتج من prices.txt.`);
     return products;
   }
-
-  // ثانياً: محاولة قراءة من ملف PDF (كاحتياطي)
-  const filePath = path.join(PDF_DIR, 'قائمة أسعار المنتجات 2026.pdf');
-  if (!await fs.pathExists(filePath)) {
-    console.warn('⚠️ ملف الأسعار غير موجود (نصي أو PDF)');
-    return [];
-  }
-  console.log('📄 جاري تحميل قائمة الأسعار من PDF...');
-  const text = await extractPDFText(filePath);
-  const products = parsePriceTable(text);
-  priceData = products;
-  console.log(`✅ تم تحميل ${products.length} منتج من PDF.`);
-  return products;
+  console.warn('⚠️ ملف prices.txt غير موجود في:', txtPath);
+  return [];
 }
 
 export function searchPriceList(query) {
@@ -112,8 +90,7 @@ export function formatPriceReply(products, query) {
 }
 
 export async function sendPriceListPDF(userId, client) {
-  // محاولة إرسال PDF إذا كان موجوداً
-  const filePath = path.join(PDF_DIR, 'قائمة أسعار المنتجات 2026.pdf');
+  const filePath = path.join(KNOWLEDGE_DIR, 'pdfs', 'قائمة أسعار المنتجات 2026.pdf');
   if (!await fs.pathExists(filePath)) {
     console.warn('⚠️ ملف PDF غير موجود للإرسال');
     return false;
