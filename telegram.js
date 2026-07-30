@@ -5,7 +5,9 @@ import fs from 'fs-extra';
 import path from 'path';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
-import MARWAN_PROMPT from './prompts/marwan.js';
+import { logger } from './logger.js';
+import extra from './extra.js';
+import * as rag from './rag.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -20,13 +22,6 @@ if (!API_ID || !API_HASH || !PHONE) {
   process.exit(1);
 }
 
-console.log('✅ API_ID:', API_ID);
-console.log('✅ API_HASH:', API_HASH);
-console.log('✅ PHONE:', PHONE);
-
-import { logger } from './logger.js';
-import extra from './extra.js';
-
 const SESSION_DIR = path.join(process.cwd(), 'sessions');
 fs.ensureDirSync(SESSION_DIR);
 let client = null;
@@ -39,13 +34,13 @@ const TELEGRAM_OPTIONS = {
   timeout: 5,
 };
 
-// ✅ أسماء الملفات بالضبط كما هي في المجلد
 const PDF_FILES = {
   products: 'كتالوج المنتجات مع الفوائد.pdf',
   products_alt: 'ملف المنتجات روعة .pdf',
   financial: 'DXN الخط المالية لشركة .pdf',
   marketing: 'الخطة التسويقية 2026.pdf',
   intro: 'البرنامج التعريفي الشامل ل DXN.pdf',
+  price_list: 'قائمة أسعار المنتجات 2026.pdf',
 };
 
 async function getCachedEntity(userId) {
@@ -70,11 +65,10 @@ async function getCachedEntity(userId) {
 
 function cleanText(text) {
   if (!text) return '';
-  return text
-    .replace(/[\u0000-\u001F\u007F-\u009F]/g, '')
-    .replace(/\s+/g, ' ')
-    .replace(/[^\w\s\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF.,?!:;()\-\n]/g, '')
-    .trim();
+  return text.replace(/[\u0000-\u001F\u007F-\u009F]/g, '')
+             .replace(/\s+/g, ' ')
+             .replace(/[^\w\s\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF.,?!:;()\-\n]/g, '')
+             .trim();
 }
 
 function formatReply(text) {
@@ -112,10 +106,8 @@ async function sendPDF(userId, fileKey, caption, replyToMsgId = null) {
     return false;
   }
   const filePath = path.join(pdfDir, fileName);
-  console.log('📄 محاولة إرسال الملف:', fileName);
-  console.log('📂 المسار الكامل:', filePath);
   if (!await fs.pathExists(filePath)) {
-    console.log('❌ الملف غير موجود في المسار:', filePath);
+    console.log('❌ الملف غير موجود:', filePath);
     return false;
   }
   try {
@@ -178,7 +170,6 @@ async function sendLongMessage(userId, text, replyToMsgId = null) {
     if (part) finalParts.push(part);
   }
 
-  console.log('📨 إرسال', finalParts.length, 'جزء (إجمالي', text.length, 'حرف)');
   let sent = false;
   for (let i = 0; i < finalParts.length; i++) {
     const part = finalParts[i];
@@ -188,13 +179,11 @@ async function sendLongMessage(userId, text, replyToMsgId = null) {
       const options = { message: part, parse_mode: 'Markdown' };
       if (isFirst && replyToMsgId) options.replyTo = replyToMsgId;
       await client.sendMessage(entity, options);
-      console.log('✅ تم إرسال الجزء', i+1, '/', finalParts.length);
       sent = true;
     } catch (e) {
-      console.error('❌ فشل إرسال الجزء', i+1, ':', e.message);
+      console.error('❌ فشل إرسال الجزء:', e.message);
     }
     if (i < finalParts.length - 1) {
-      console.log('⏳ انتظار 40 ثانية قبل إرسال الجزء التالي...');
       await new Promise(resolve => setTimeout(resolve, 40000));
     }
   }
@@ -271,68 +260,62 @@ function setLastReply(userId, reply) {
   lastReplyCache.set(userId, reply);
 }
 
-// ===== كشف طلب الملفات =====
-function detectPDFRequest(text) {
-  const lower = text.toLowerCase();
-  if (lower.includes('منتج') || lower.includes('كتالوج') || lower.includes('المنتجات') || lower.includes('روعة')) {
-    return { key: 'products', topic: 'المنتجات' };
-  }
-  if (lower.includes('خطة مالية') || lower.includes('الخطة المالية') || lower.includes('مالية') || lower.includes('أرباح') || lower.includes('عمولة') || lower.includes('دخل')) {
-    return { key: 'financial', topic: 'الخطة المالية' };
-  }
-  if (lower.includes('خطة تسويقية') || lower.includes('الخطة التسويقية') || lower.includes('تسويق') || lower.includes('استراتيجية')) {
-    return { key: 'marketing', topic: 'الخطة التسويقية' };
-  }
-  const companyKeywords = ['تعريف', 'الشركة', 'دي اكس ان', 'دي إكس ان', 'dxn', 'برنامج تعريفي', 'عن dxn', 'عن دي اكس ان', 'ما هي dxn', 'ما هو dxn', 'ما هي دي اكس ان', 'ما هو دي اكس ان', 'ما هي شركة', 'ما هو شركة', 'تعرف', 'تعرف على', 'تعريف بالشركة', 'نبذة عن', 'معلومات عن'];
-  for (const kw of companyKeywords) {
-    if (lower.includes(kw)) {
-      return { key: 'intro', topic: 'شركة DXN' };
-    }
-  }
-  return null;
+// ===== كشف طلب الأسعار =====
+function isPriceQuery(text) {
+  const keywords = ['سعر', 'اسعار', 'السعر', 'الاسعار', 'ثمن', 'أثمان', 'تكلفة', 'نقاط', 'النقاط', 'P.V', 'pv', 'سعر العضو', 'سعر غير العضو', 'قائمة الأسعار', 'المنتجات', 'منتج'];
+  const normalized = normalizeText(text);
+  return keywords.some(kw => normalized.includes(normalizeText(kw)));
 }
 
+// ===== الرد على استفسار الأسعار =====
+async function handlePriceQuery(userId, question, msgId) {
+  // تحميل قائمة الأسعار إذا لم تكن محملة
+  let products = await rag.loadPriceList();
+  if (!products || products.length === 0) {
+    await sendLongMessage(userId, '⚠️ عذراً، لا تتوفر قائمة الأسعار حالياً. يرجى المحاولة لاحقاً.', msgId);
+    return;
+  }
+
+  // البحث عن المنتجات
+  const results = rag.searchPriceList(question);
+  const reply = rag.formatPriceReply(results, question);
+  await sendLongMessage(userId, reply, msgId);
+
+  // إرسال ملف PDF
+  const sent = await rag.sendPriceListPDF(userId, client);
+  if (!sent) {
+    await sendLongMessage(userId, '⚠️ تعذر إرسال ملف PDF، لكن يمكنك طلب المساعدة من الإدارة.', null);
+  }
+}
+
+// ===== الرد السريع العام =====
 async function getFastReply(question, contextStr) {
   let reply = null;
   try {
-    console.log('⚡ Trying chatWithModels (fast)...');
-    const results = await extra.chatWithModels(question, MARWAN_PROMPT.replace(/{context}/g, contextStr || 'لا يوجد سياق سابق').replace(/{question}/g, question));
+    const results = await extra.chatWithModels(question, contextStr);
     for (const r of results) {
       if (r.answer && r.answer.trim().length > 0) {
         reply = r.answer;
-        console.log('✅ Got reply from', r.model);
         break;
       }
     }
-  } catch (e) {
-    console.log('⏳ chatWithModels error:', e.message);
-  }
+  } catch (e) {}
   if (!reply) {
     try {
-      console.log('⚡ Trying chatWithChatX (fast)...');
       const result = await extra.chatWithChatX(question, 'gemini');
-      if (result.answer && result.answer.trim().length > 0) {
-        reply = result.answer;
-        console.log('✅ Got reply from ChatX');
-      }
-    } catch (e) {
-      console.log('⏳ chatWithChatX error:', e.message);
-    }
+      if (result.answer) reply = result.answer;
+    } catch (e) {}
   }
   if (!reply) {
     try {
-      console.log('⚡ Falling back to multiSearch (fast)...');
       const results = await extra.multiSearch(question);
       for (const r of results) {
         if (r.answer && r.answer.trim().length > 0) {
           reply = r.answer;
-          console.log('✅ Got reply from multiSearch');
           break;
         }
       }
-    } catch (e) {
-      console.log('⏳ multiSearch error:', e.message);
-    }
+    } catch (e) {}
   }
   if (!reply) reply = 'عذراً، لم أستطع معالجة سؤالك حالياً. يرجى إعادة صياغته.';
   return reply;
@@ -343,12 +326,13 @@ async function getReply(userId, question, msgId) {
   const contextStr = context.map(m => `${m.role}: ${m.content}`).join('\n');
   const lastReply = getLastReply(userId);
 
-  const pdfRequest = detectPDFRequest(question);
-  if (pdfRequest) {
-    console.log('📄 تم الكشف عن طلب ملف:', pdfRequest.topic);
-    console.log('🔑 مفتاح الملف:', pdfRequest.key);
+  // التحقق من طلب الأسعار
+  if (isPriceQuery(question)) {
+    await handlePriceQuery(userId, question, msgId);
+    return;
   }
 
+  // الرد العام
   let reply = await getFastReply(question, contextStr);
   reply = cleanText(reply);
   reply = reply.replace(/[#*_|~`>+=]/g, '');
@@ -356,10 +340,6 @@ async function getReply(userId, question, msgId) {
   reply = reply.replace(/من ملفات DXN/gi, '');
   reply = reply.replace(/وفقاً للمعلومات/gi, '');
   reply = reply.replace(/^مروان:\s*/gi, '');
-
-  if (pdfRequest) {
-    reply = reply + `\n\n📄 *سأرسل لك ملفاً يحتوي على تفاصيل أكثر عن ${pdfRequest.topic}. يمكنك الاطلاع عليه للمزيد.*`;
-  }
 
   if (lastReply && reply === lastReply) {
     const alternatives = [
@@ -371,11 +351,6 @@ async function getReply(userId, question, msgId) {
   }
 
   await sendLongMessage(userId, reply, msgId);
-
-  if (pdfRequest) {
-    await sendPDF(userId, pdfRequest.key, `📄 ${pdfRequest.topic}`, msgId);
-  }
-
   setLastReply(userId, reply);
   return null;
 }
@@ -394,6 +369,8 @@ export async function initTelegram() {
     await fs.writeFile(path.join(SESSION_DIR, 'session.txt'), client.session.save());
     const me = await client.getMe();
     logger.info(`👤 Logged as ${me.firstName} (${me.id})`);
+    // تحميل قائمة الأسعار عند بدء التشغيل
+    await rag.loadPriceList();
     setupListener();
     return client;
   } catch(e) { logger.errorWithContext('Telegram init failed', e); throw e; }
@@ -444,7 +421,6 @@ function setupListener() {
         console.log(`✅ Greeting reply: "${greeting}"`);
         addToMemory(userId, 'assistant', greeting);
         await sendLongMessage(userId, greeting, msg.id);
-
         const promptMsg = getPromptMessage();
         console.log(`✅ Prompt message: "${promptMsg}"`);
         addToMemory(userId, 'assistant', promptMsg);
@@ -453,7 +429,7 @@ function setupListener() {
       }
 
       const startTime = Date.now();
-      console.log('⚡ Getting fast reply...');
+      console.log('⚡ Getting reply...');
       await getReply(userId, text, msg.id);
       console.log(`⚡ Total time: ${Date.now() - startTime}ms`);
 
@@ -461,7 +437,7 @@ function setupListener() {
       console.error('Handler error:', e);
     }
   });
-  logger.info('👂 Listening (ultra fast mode)');
+  logger.info('👂 Listening for messages');
 }
 
 export function getClient() { return client; }
