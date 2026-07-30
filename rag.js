@@ -5,10 +5,8 @@ import pdfParse from 'pdf-parse';
 const KNOWLEDGE_DIR = path.join(process.cwd(), 'knowledge');
 const PDF_DIR = path.join(KNOWLEDGE_DIR, 'pdfs');
 
-// ===== تخزين بيانات الأسعار =====
 let priceData = [];
 
-// ===== استخراج النص من PDF =====
 async function extractPDFText(filePath) {
   try {
     const dataBuffer = await fs.readFile(filePath);
@@ -20,20 +18,13 @@ async function extractPDFText(filePath) {
   }
 }
 
-// ===== تحليل نص الجدول واستخراج المنتجات =====
 function parsePriceTable(text) {
   const lines = text.split('\n').filter(line => line.trim().length > 10);
   const products = [];
-  let currentProduct = null;
-
   for (const line of lines) {
-    // تجاهل الأسطر التي تحتوي على عناوين الأعمدة أو التذييلات
     if (line.includes('سعر العضو') || line.includes('سعر غير العضو') || line.includes('عدد النقاط')) continue;
     if (line.includes('PERSONAL CARE') || line.includes('FOOD & PEVERAGE') || line.includes('HEALTH FOOD')) continue;
     if (line.trim().length < 20) continue;
-
-    // محاولة استخراج البيانات باستخدام تعبيرات منتظمة
-    // الصيغة المتوقعة: اسم المنتج (قد يكون طويلاً) ثم الأرقام
     const match = line.match(/^(.+?)\s+(\d+\.?\d*)\s+(\d+\.?\d*)\s+(\d+\.?\d*)/);
     if (match) {
       const name = match[1].trim();
@@ -44,7 +35,6 @@ function parsePriceTable(text) {
         products.push({ name, dp, rp, pv });
       }
     } else {
-      // محاولة بديلة: البحث عن أرقام في السطر
       const numbers = line.match(/\d+\.?\d*/g);
       if (numbers && numbers.length >= 3) {
         const name = line.replace(/\d+\.?\d*/g, '').trim();
@@ -60,22 +50,32 @@ function parsePriceTable(text) {
   return products;
 }
 
-// ===== تحميل قائمة الأسعار من ملف PDF =====
 export async function loadPriceList() {
+  // أولاً: محاولة قراءة من ملف prices.txt (الأسهل والأسرع)
+  const txtPath = path.join(KNOWLEDGE_DIR, 'prices.txt');
+  if (await fs.pathExists(txtPath)) {
+    console.log('📄 جاري تحميل قائمة الأسعار من prices.txt...');
+    const text = await fs.readFile(txtPath, 'utf-8');
+    const products = parsePriceTable(text);
+    priceData = products;
+    console.log(`✅ تم تحميل ${products.length} منتج من prices.txt.`);
+    return products;
+  }
+
+  // ثانياً: محاولة قراءة من ملف PDF (كاحتياطي)
   const filePath = path.join(PDF_DIR, 'قائمة أسعار المنتجات 2026.pdf');
   if (!await fs.pathExists(filePath)) {
-    console.warn('⚠️ ملف الأسعار غير موجود:', filePath);
+    console.warn('⚠️ ملف الأسعار غير موجود (نصي أو PDF)');
     return [];
   }
-  console.log('📄 جاري تحميل قائمة الأسعار...');
+  console.log('📄 جاري تحميل قائمة الأسعار من PDF...');
   const text = await extractPDFText(filePath);
   const products = parsePriceTable(text);
   priceData = products;
-  console.log(`✅ تم تحميل ${products.length} منتج من قائمة الأسعار.`);
+  console.log(`✅ تم تحميل ${products.length} منتج من PDF.`);
   return products;
 }
 
-// ===== البحث في قائمة الأسعار حسب الاستعلام =====
 export function searchPriceList(query) {
   if (!priceData.length) return [];
   const keywords = query.split(/\s+/).filter(w => w.length > 2);
@@ -83,14 +83,12 @@ export function searchPriceList(query) {
     const lowerName = p.name.toLowerCase();
     return keywords.some(kw => lowerName.includes(kw.toLowerCase()));
   });
-  // إذا لم تكن هناك نتائج، نرجع أول 5 منتجات كاقتراح
   if (results.length === 0) {
     return priceData.slice(0, 5).map(p => ({ ...p, suggestion: true }));
   }
-  return results.slice(0, 10); // نحدد النتائج بـ 10 كحد أقصى
+  return results.slice(0, 10);
 }
 
-// ===== دالة للحصول على رد نصي منسق =====
 export function formatPriceReply(products, query) {
   if (!products.length) {
     return `🔍 لم أجد منتجات تطابق "${query}". يمكنك الاطلاع على الملف المرفق لترى جميع المنتجات.`;
@@ -113,14 +111,15 @@ export function formatPriceReply(products, query) {
   return reply;
 }
 
-// ===== إرسال ملف PDF =====
-export async function sendPriceListPDF(chatId, client) {
+export async function sendPriceListPDF(userId, client) {
+  // محاولة إرسال PDF إذا كان موجوداً
   const filePath = path.join(PDF_DIR, 'قائمة أسعار المنتجات 2026.pdf');
   if (!await fs.pathExists(filePath)) {
+    console.warn('⚠️ ملف PDF غير موجود للإرسال');
     return false;
   }
   try {
-    await client.sendMessage(chatId, {
+    await client.sendMessage(userId, {
       document: { file: filePath },
       caption: '📄 *قائمة أسعار المنتجات 2026 (كاملة)*\nجميع المنتجات مع الأسعار والنقاط.'
     });
@@ -131,7 +130,7 @@ export async function sendPriceListPDF(chatId, client) {
   }
 }
 
-// ===== تحميل المعرفة العامة (للتوافق مع الكود القديم) =====
+// ===== المعرفة العامة (للتوافق) =====
 let KNOWLEDGE_CACHE = null;
 
 export async function loadKnowledge() {
