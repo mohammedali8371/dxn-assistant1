@@ -20,6 +20,7 @@
     "mongoose": "^9.8.0",
     "node-cache": "^5.1.2",
     "openai": "^4.20.0",
+    "pdf-lib": "^1.17.1",
     "pdf-parse": "^1.1.4",
     "telegram": "^2.6.0",
     "uuid": "^9.0.1",
