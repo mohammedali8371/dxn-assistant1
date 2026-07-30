@@ -101,15 +101,9 @@ function formatReply(text) {
 async function sendPDF(userId, fileKey, caption, replyToMsgId = null) {
   const pdfDir = path.join(process.cwd(), 'knowledge', 'pdfs');
   const fileName = PDF_FILES[fileKey];
-  if (!fileName) {
-    console.log('⚠️ مفتاح الملف غير صحيح:', fileKey);
-    return false;
-  }
+  if (!fileName) return false;
   const filePath = path.join(pdfDir, fileName);
-  if (!await fs.pathExists(filePath)) {
-    console.log('❌ الملف غير موجود:', filePath);
-    return false;
-  }
+  if (!await fs.pathExists(filePath)) return false;
   try {
     const entity = await getCachedEntity(userId);
     const options = { file: filePath, caption: caption || '📄 ' + fileName };
@@ -128,7 +122,6 @@ async function sendLongMessage(userId, text, replyToMsgId = null) {
   text = cleanText(text);
   text = formatReply(text);
   if (!text) return false;
-
   const MAX_LENGTH = 4000;
   let parts = [];
   if (text.length <= MAX_LENGTH) {
@@ -158,7 +151,6 @@ async function sendLongMessage(userId, text, replyToMsgId = null) {
     }
     if (current.trim()) parts.push(current.trim());
   }
-
   const finalParts = [];
   for (let part of parts) {
     while (part.length > MAX_LENGTH) {
@@ -169,7 +161,6 @@ async function sendLongMessage(userId, text, replyToMsgId = null) {
     }
     if (part) finalParts.push(part);
   }
-
   let sent = false;
   for (let i = 0; i < finalParts.length; i++) {
     const part = finalParts[i];
@@ -260,35 +251,29 @@ function setLastReply(userId, reply) {
   lastReplyCache.set(userId, reply);
 }
 
-// ===== كشف طلب الأسعار =====
 function isPriceQuery(text) {
   const keywords = ['سعر', 'اسعار', 'السعر', 'الاسعار', 'ثمن', 'أثمان', 'تكلفة', 'نقاط', 'النقاط', 'P.V', 'pv', 'سعر العضو', 'سعر غير العضو', 'قائمة الأسعار', 'المنتجات', 'منتج'];
   const normalized = normalizeText(text);
   return keywords.some(kw => normalized.includes(normalizeText(kw)));
 }
 
-// ===== الرد على استفسار الأسعار =====
 async function handlePriceQuery(userId, question, msgId) {
-  // تحميل قائمة الأسعار إذا لم تكن محملة
   let products = await rag.loadPriceList();
   if (!products || products.length === 0) {
     await sendLongMessage(userId, '⚠️ عذراً، لا تتوفر قائمة الأسعار حالياً. يرجى المحاولة لاحقاً.', msgId);
     return;
   }
-
-  // البحث عن المنتجات
   const results = rag.searchPriceList(question);
-  const reply = rag.formatPriceReply(results, question);
+  let reply = rag.formatPriceReply(results, question);
+  // إضافة تأكيد بإرسال الملف
+  reply += '\n\n📎 *سأرسل لك الملف الآن لتطلع على القائمة الكاملة.*';
   await sendLongMessage(userId, reply, msgId);
-
-  // إرسال ملف PDF
   const sent = await rag.sendPriceListPDF(userId, client);
   if (!sent) {
     await sendLongMessage(userId, '⚠️ تعذر إرسال ملف PDF، لكن يمكنك طلب المساعدة من الإدارة.', null);
   }
 }
 
-// ===== الرد السريع العام =====
 async function getFastReply(question, contextStr) {
   let reply = null;
   try {
@@ -325,14 +310,10 @@ async function getReply(userId, question, msgId) {
   const context = getContext(userId);
   const contextStr = context.map(m => `${m.role}: ${m.content}`).join('\n');
   const lastReply = getLastReply(userId);
-
-  // التحقق من طلب الأسعار
   if (isPriceQuery(question)) {
     await handlePriceQuery(userId, question, msgId);
     return;
   }
-
-  // الرد العام
   let reply = await getFastReply(question, contextStr);
   reply = cleanText(reply);
   reply = reply.replace(/[#*_|~`>+=]/g, '');
@@ -340,7 +321,6 @@ async function getReply(userId, question, msgId) {
   reply = reply.replace(/من ملفات DXN/gi, '');
   reply = reply.replace(/وفقاً للمعلومات/gi, '');
   reply = reply.replace(/^مروان:\s*/gi, '');
-
   if (lastReply && reply === lastReply) {
     const alternatives = [
       'هل هناك تفاصيل إضافية تود معرفتها؟',
@@ -349,7 +329,6 @@ async function getReply(userId, question, msgId) {
     ];
     reply = alternatives[Math.floor(Math.random() * alternatives.length)];
   }
-
   await sendLongMessage(userId, reply, msgId);
   setLastReply(userId, reply);
   return null;
@@ -369,7 +348,6 @@ export async function initTelegram() {
     await fs.writeFile(path.join(SESSION_DIR, 'session.txt'), client.session.save());
     const me = await client.getMe();
     logger.info(`👤 Logged as ${me.firstName} (${me.id})`);
-    // تحميل قائمة الأسعار عند بدء التشغيل
     await rag.loadPriceList();
     setupListener();
     return client;
@@ -382,10 +360,8 @@ function setupListener() {
     try {
       if (!event || !event.message) return;
       if (event.message.fromId?.isBot) return;
-
       const msg = event.message;
       let userId = null, chatId = null, text = null;
-
       if (event.userId) {
         userId = parseInt(event.userId);
         chatId = userId;
@@ -403,19 +379,15 @@ function setupListener() {
         chatId = userId;
         text = msg.text || msg.message;
       }
-
       if (!userId || !chatId) return;
       if (chatId < 0) {
         console.log(`⏭️ Skipping group ${chatId}`);
         return;
       }
       if (!text) text = 'وسائط';
-
       console.log(`📩 Private chat from ${userId}`);
       console.log(`📝 Raw text: "${text}"`);
-
       addToMemory(userId, 'user', text);
-
       if (isGreeting(text)) {
         const greeting = getGreetingReply(text);
         console.log(`✅ Greeting reply: "${greeting}"`);
@@ -427,12 +399,10 @@ function setupListener() {
         await sendLongMessage(userId, promptMsg, null);
         return;
       }
-
       const startTime = Date.now();
       console.log('⚡ Getting reply...');
       await getReply(userId, text, msg.id);
       console.log(`⚡ Total time: ${Date.now() - startTime}ms`);
-
     } catch(e) {
       console.error('Handler error:', e);
     }

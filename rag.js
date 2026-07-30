@@ -11,20 +11,23 @@ let priceData = [];
 function parsePriceTable(text) {
   const lines = text.split('\n').filter(line => line.trim().length > 10);
   const products = [];
+  let currentProduct = null;
   for (const line of lines) {
     if (line.includes('سعر العضو') || line.includes('سعر غير العضو') || line.includes('عدد النقاط')) continue;
     if (line.includes('PERSONAL CARE') || line.includes('FOOD & PEVERAGE') || line.includes('HEALTH FOOD')) continue;
     if (line.trim().length < 20) continue;
+    // محاولة استخراج البيانات من السطر
     const match = line.match(/^(.+?)\s+(\d+\.?\d*)\s+(\d+\.?\d*)\s+(\d+\.?\d*)/);
     if (match) {
       const name = match[1].trim();
       const dp = parseFloat(match[2]);
       const rp = parseFloat(match[3]);
       const pv = parseFloat(match[4]);
-      if (!isNaN(dp) && !isNaN(rp) && !isNaN(pv)) {
+      if (!isNaN(dp) && !isNaN(rp) && !isNaN(pv) && name.length > 3) {
         products.push({ name, dp, rp, pv });
       }
     } else {
+      // محاولة بديلة: البحث عن أرقام في السطر
       const numbers = line.match(/\d+\.?\d*/g);
       if (numbers && numbers.length >= 3) {
         const name = line.replace(/\d+\.?\d*/g, '').trim();
