@@ -39,13 +39,14 @@ const TELEGRAM_OPTIONS = {
   timeout: 5,
 };
 
-// ✅ أسماء الملفات بالضبط كما هي في المجلد
+// ✅ قائمة ملفات PDF المتاحة
 const PDF_FILES = {
   products: 'كتالوج المنتجات مع الفوائد.pdf',
   products_alt: 'ملف المنتجات روعة .pdf',
   financial: 'DXN الخط المالية لشركة .pdf',
   marketing: 'الخطة التسويقية 2026.pdf',
   intro: 'البرنامج التعريفي الشامل ل DXN.pdf',
+  price_list: 'قائمة أسعار المنتجات 2026.pdf',
 };
 
 async function getCachedEntity(userId) {
@@ -271,22 +272,35 @@ function setLastReply(userId, reply) {
   lastReplyCache.set(userId, reply);
 }
 
-// ===== كشف طلب الملفات =====
+// ===== كشف طلب الملفات (يدعم ملفات متعددة) =====
 function detectPDFRequest(text) {
   const lower = text.toLowerCase();
-  if (lower.includes('منتج') || lower.includes('كتالوج') || lower.includes('المنتجات') || lower.includes('روعة')) {
-    return { key: 'products', topic: 'المنتجات' };
+
+  // ===== طلب الأسعار أو المنتجات → إرسال ملفين (الأسعار + الكتالوج) =====
+  if (
+    lower.includes('سعر') || lower.includes('اسعار') ||
+    lower.includes('منتج') || lower.includes('المنتجات') ||
+    lower.includes('كتالوج') || lower.includes('قائمة') ||
+    lower.includes('فوائد')
+  ) {
+    return {
+      keys: ['price_list', 'products'],     // ملف الأسعار + ملف الكتالوج
+      topic: 'الأسعار والمنتجات',
+      multi: true
+    };
   }
-  if (lower.includes('خطة مالية') || lower.includes('الخطة المالية') || lower.includes('مالية') || lower.includes('أرباح') || lower.includes('عمولة') || lower.includes('دخل')) {
-    return { key: 'financial', topic: 'الخطة المالية' };
+
+  // ===== طلب ملفات منفردة أخرى =====
+  if (lower.includes('خطة مالية') || lower.includes('الخطة المالية') || lower.includes('مالية') || lower.includes('أرباح')) {
+    return { keys: ['financial'], topic: 'الخطة المالية', multi: false };
   }
-  if (lower.includes('خطة تسويقية') || lower.includes('الخطة التسويقية') || lower.includes('تسويق') || lower.includes('استراتيجية')) {
-    return { key: 'marketing', topic: 'الخطة التسويقية' };
+  if (lower.includes('خطة تسويقية') || lower.includes('الخطة التسويقية') || lower.includes('تسويق')) {
+    return { keys: ['marketing'], topic: 'الخطة التسويقية', multi: false };
   }
-  const companyKeywords = ['تعريف', 'الشركة', 'دي اكس ان', 'دي إكس ان', 'dxn', 'برنامج تعريفي', 'عن dxn', 'عن دي اكس ان', 'ما هي dxn', 'ما هو dxn', 'ما هي دي اكس ان', 'ما هو دي اكس ان', 'ما هي شركة', 'ما هو شركة', 'تعرف', 'تعرف على', 'تعريف بالشركة', 'نبذة عن', 'معلومات عن'];
+  const companyKeywords = ['تعريف', 'الشركة', 'دي اكس ان', 'دي إكس ان', 'dxn', 'برنامج تعريفي', 'عن dxn', 'ما هي dxn', 'ما هو dxn', 'ما هي دي اكس ان', 'ما هو دي اكس ان', 'ما هي شركة', 'ما هو شركة', 'تعرف', 'تعرف على', 'نبذة عن'];
   for (const kw of companyKeywords) {
     if (lower.includes(kw)) {
-      return { key: 'intro', topic: 'شركة DXN' };
+      return { keys: ['intro'], topic: 'شركة DXN', multi: false };
     }
   }
   return null;
@@ -345,8 +359,8 @@ async function getReply(userId, question, msgId) {
 
   const pdfRequest = detectPDFRequest(question);
   if (pdfRequest) {
-    console.log('📄 تم الكشف عن طلب ملف:', pdfRequest.topic);
-    console.log('🔑 مفتاح الملف:', pdfRequest.key);
+    console.log('📄 تم الكشف عن طلب ملفات:', pdfRequest.topic);
+    console.log('🔑 المفاتيح:', pdfRequest.keys);
   }
 
   let reply = await getFastReply(question, contextStr);
@@ -358,7 +372,12 @@ async function getReply(userId, question, msgId) {
   reply = reply.replace(/^مروان:\s*/gi, '');
 
   if (pdfRequest) {
-    reply = reply + `\n\n📄 *سأرسل لك ملفاً يحتوي على تفاصيل أكثر عن ${pdfRequest.topic}. يمكنك الاطلاع عليه للمزيد.*`;
+    // رسالة خاصة عند طلب الأسعار/المنتجات (ملفين)
+    if (pdfRequest.multi) {
+      reply = reply + `\n\n📄 *سأرسل لك ملفين PDF يحتويان على الأسعار والفوائد وأنواع المنتجات. يمكنك الاطلاع عليهما للمزيد.*`;
+    } else {
+      reply = reply + `\n\n📄 *سأرسل لك ملفاً يحتوي على تفاصيل أكثر عن ${pdfRequest.topic}. يمكنك الاطلاع عليه للمزيد.*`;
+    }
   }
 
   if (lastReply && reply === lastReply) {
@@ -372,8 +391,12 @@ async function getReply(userId, question, msgId) {
 
   await sendLongMessage(userId, reply, msgId);
 
+  // إرسال الملفات المطلوبة
   if (pdfRequest) {
-    await sendPDF(userId, pdfRequest.key, `📄 ${pdfRequest.topic}`, msgId);
+    for (const key of pdfRequest.keys) {
+      const caption = pdfRequest.multi ? `📄 ${key === 'price_list' ? 'قائمة الأسعار' : 'كتالوج المنتجات'}` : `📄 ${pdfRequest.topic}`;
+      await sendPDF(userId, key, caption, msgId);
+    }
   }
 
   setLastReply(userId, reply);
