@@ -162,9 +162,27 @@ async function handlePriceQuery(userId, question, msgId) {
     return;
   }
 
-  // 1. إرسال الجدول النصي
-  const table = rag.generatePriceTable(results, question);
-  await sendLongMessage(userId, table, msgId);
+  // 1. إنشاء وإرسال الصورة
+  try {
+    const imageBuffer = await rag.generatePriceImage(results, question);
+    if (imageBuffer) {
+      const entity = await getCachedEntity(userId);
+      await client.sendMessage(entity, {
+        file: imageBuffer,
+        caption: `📊 *نتائج البحث عن: "${question}"*`
+      });
+    } else {
+      // بديل: إرسال نص
+      let reply = `📊 *نتائج البحث عن: "${question}"*\n\n`;
+      for (const p of results) {
+        reply += `🔹 *${p.en}*\n   ${p.ar}\n   🟢 العضو: ${p.dp.toFixed(2)}$ | 🔴 غير عضو: ${p.rp.toFixed(2)}$ | ⭐ النقاط: ${p.pv.toFixed(2)} P.V\n\n`;
+      }
+      await sendLongMessage(userId, reply, msgId);
+    }
+  } catch (e) {
+    console.error('❌ خطأ في الصورة:', e);
+    await sendLongMessage(userId, '⚠️ حدث خطأ في إنشاء الصورة، لكن يمكنك الاطلاع على الملف PDF المرفق.', msgId);
+  }
 
   // 2. إرسال رسالة تأكيدية
   await sendLongMessage(userId, `📎 *جاري إرسال ملف PDF الآن لتطلع على القائمة الكاملة...*`);
