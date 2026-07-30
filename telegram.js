@@ -27,21 +27,7 @@ fs.ensureDirSync(SESSION_DIR);
 let client = null;
 const entityCache = new Map();
 
-const TELEGRAM_OPTIONS = {
-  connectionRetries: 2,
-  useWSS: true,
-  dc: 1,
-  timeout: 5,
-};
-
-const PDF_FILES = {
-  products: 'كتالوج المنتجات مع الفوائد.pdf',
-  products_alt: 'ملف المنتجات روعة .pdf',
-  financial: 'DXN الخط المالية لشركة .pdf',
-  marketing: 'الخطة التسويقية 2026.pdf',
-  intro: 'البرنامج التعريفي الشامل ل DXN.pdf',
-  price_list: 'قائمة أسعار المنتجات 2026.pdf',
-};
+const TELEGRAM_OPTIONS = { connectionRetries: 2, useWSS: true, dc: 1, timeout: 5 };
 
 async function getCachedEntity(userId) {
   if (entityCache.has(userId)) return entityCache.get(userId);
@@ -58,16 +44,14 @@ async function getCachedEntity(userId) {
     const entity = await client.getEntity(userId);
     entityCache.set(userId, entity);
     return entity;
-  } catch (e) {
-    return null;
-  }
+  } catch (e) { return null; }
 }
 
 function cleanText(text) {
   if (!text) return '';
-  return text.replace(/[\u0000-\u001F\u007F-\u009F]/g, '')
+  return text.replace(/[\u0000-\u001F\u007F-\u009F]/g, ' ')
              .replace(/\s+/g, ' ')
-             .replace(/[^\w\s\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF.,?!:;()\-\n]/g, '')
+             .replace(/[^\w\s\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF.,?!:;()\-\n]/g, ' ')
              .trim();
 }
 
@@ -76,45 +60,7 @@ function formatReply(text) {
   text = text.replace(/هذه المعلومات مأخوذة من ملفات DXN/gi, '');
   text = text.replace(/من ملفات DXN/gi, '');
   text = text.replace(/^مروان:\s*/gi, '');
-  const lines = text.split('\n');
-  let formatted = '';
-  let inList = false;
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) { inList = false; formatted += '\n'; continue; }
-    if (trimmed.length < 40 && !trimmed.match(/^[•\-–—★▪▫◆◇○\d]/) && !trimmed.match(/^[أ-ي]/)) {
-      inList = false;
-      formatted += '\n*' + trimmed + '*\n';
-      continue;
-    }
-    if (trimmed.match(/^\d+[\.\)]\s*/) || trimmed.match(/^[•\-–—★▪▫◆◇○]\s*/)) {
-      inList = true;
-      formatted += trimmed + '\n';
-      continue;
-    }
-    if (inList) { inList = false; }
-    formatted += trimmed + '\n';
-  }
-  return formatted.trim();
-}
-
-async function sendPDF(userId, fileKey, caption, replyToMsgId = null) {
-  const pdfDir = path.join(process.cwd(), 'knowledge', 'pdfs');
-  const fileName = PDF_FILES[fileKey];
-  if (!fileName) return false;
-  const filePath = path.join(pdfDir, fileName);
-  if (!await fs.pathExists(filePath)) return false;
-  try {
-    const entity = await getCachedEntity(userId);
-    const options = { file: filePath, caption: caption || '📄 ' + fileName };
-    if (replyToMsgId) options.replyTo = replyToMsgId;
-    await client.sendMessage(entity, options);
-    console.log('✅ تم إرسال الملف:', fileName);
-    return true;
-  } catch (e) {
-    console.error('❌ فشل إرسال الملف:', e.message);
-    return false;
-  }
+  return text.trim();
 }
 
 async function sendLongMessage(userId, text, replyToMsgId = null) {
@@ -124,68 +70,35 @@ async function sendLongMessage(userId, text, replyToMsgId = null) {
   if (!text) return false;
   const MAX_LENGTH = 4000;
   let parts = [];
-  if (text.length <= MAX_LENGTH) {
-    parts.push(text);
-  } else {
+  if (text.length <= MAX_LENGTH) { parts.push(text); } 
+  else {
     const paragraphs = text.split(/\n\s*\n/);
     let current = '';
     for (const p of paragraphs) {
-      if (p.length > MAX_LENGTH) {
-        const sentences = p.split(/(?<=[.!?])\s+/);
-        for (const s of sentences) {
-          if ((current + s).length > MAX_LENGTH && current.length > 0) {
-            parts.push(current.trim());
-            current = s;
-          } else {
-            current += (current ? ' ' : '') + s;
-          }
-        }
-      } else {
-        if ((current + p).length > MAX_LENGTH && current.length > 0) {
-          parts.push(current.trim());
-          current = p;
-        } else {
-          current += (current ? '\n\n' : '') + p;
-        }
-      }
+      if ((current + p).length > MAX_LENGTH && current.length > 0) {
+        parts.push(current.trim());
+        current = p;
+      } else { current += (current ? '\n\n' : '') + p; }
     }
     if (current.trim()) parts.push(current.trim());
   }
-  const finalParts = [];
-  for (let part of parts) {
-    while (part.length > MAX_LENGTH) {
-      let idx = part.lastIndexOf(' ', MAX_LENGTH);
-      if (idx === -1) idx = MAX_LENGTH;
-      finalParts.push(part.substring(0, idx).trim());
-      part = part.substring(idx).trim();
-    }
-    if (part) finalParts.push(part);
-  }
   let sent = false;
-  for (let i = 0; i < finalParts.length; i++) {
-    const part = finalParts[i];
-    const isFirst = (i === 0);
+  for (let i = 0; i < parts.length; i++) {
     try {
       const entity = await getCachedEntity(userId);
-      const options = { message: part, parse_mode: 'Markdown' };
-      if (isFirst && replyToMsgId) options.replyTo = replyToMsgId;
+      const options = { message: parts[i], parse_mode: 'Markdown' };
+      if (i === 0 && replyToMsgId) options.replyTo = replyToMsgId;
       await client.sendMessage(entity, options);
       sent = true;
-    } catch (e) {
-      console.error('❌ فشل إرسال الجزء:', e.message);
-    }
-    if (i < finalParts.length - 1) {
-      await new Promise(resolve => setTimeout(resolve, 40000));
-    }
+    } catch (e) { console.error('❌ إرسال:', e.message); }
+    if (i < parts.length - 1) await new Promise(r => setTimeout(r, 2000));
   }
   return sent;
 }
 
 function normalizeText(text) {
   let normalized = text.normalize('NFKD').replace(/[\u064B-\u065F\u0617-\u061A\u06D6-\u06ED]/g, '');
-  normalized = normalized.replace(/[أإآ]/g, 'ا');
-  normalized = normalized.replace(/ة/g, 'ه');
-  normalized = normalized.replace(/[،؛؟!\.\-\"\']/g, ' ');
+  normalized = normalized.replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/[،؛؟!\.\-\"\']/g, ' ');
   normalized = normalized.replace(/\s+/g, ' ');
   return normalized.trim().toLowerCase();
 }
@@ -193,9 +106,7 @@ function normalizeText(text) {
 function isGreeting(text) {
   const greetings = ['السلام عليكم', 'سلام', 'مرحبا', 'أهلا', 'هلا', 'الو', 'هلو', 'صباح الخير', 'مساء الخير', 'يا هلا', 'هاي', 'كيفك', 'كيف حالك', 'كيف الحال', 'اخبارك', 'شو اخبارك', 'شحالك', 'وشحالك'];
   const normalized = normalizeText(text);
-  for (const g of greetings) {
-    if (normalized.includes(normalizeText(g))) return true;
-  }
+  for (const g of greetings) if (normalized.includes(normalizeText(g))) return true;
   return false;
 }
 
@@ -207,20 +118,13 @@ function getGreetingReply(text) {
   if (lower.includes('هاي') || lower.includes('الو') || lower.includes('هلو')) return 'أهلاً';
   if (lower.includes('صباح الخير')) return 'صباح النور';
   if (lower.includes('مساء الخير')) return 'مساء النور';
-  if (lower.includes('كيفك') || lower.includes('كيف حالك') || lower.includes('كيف الحال') || lower.includes('شحالك') || lower.includes('وشحالك')) {
-    return 'بخير الحمد لله';
-  }
+  if (lower.includes('كيفك') || lower.includes('كيف حالك') || lower.includes('كيف الحال') || lower.includes('شحالك') || lower.includes('وشحالك')) return 'بخير الحمد لله';
   if (lower.includes('اخبارك') || lower.includes('شو اخبارك')) return 'الحمد لله بخير';
   return 'أهلاً بك';
 }
 
 function getPromptMessage() {
-  const prompts = [
-    'أي سؤال أو استفسار تفضل، أنا هنا لمساعدتك.',
-    'كيف يمكنني مساعدتك اليوم؟ تفضل بطرح سؤالك.',
-    'أخبرني ماذا تريد معرفته عن DXN، سأكون سعيداً بمساعدتك.',
-    'تفضل، اسأل عن أي شيء يخص DXN وأنا هنا للإجابة.'
-  ];
+  const prompts = ['أي سؤال أو استفسار تفضل، أنا هنا لمساعدتك.', 'كيف يمكنني مساعدتك اليوم؟', 'أخبرني ماذا تريد معرفته عن DXN.'];
   return prompts[Math.floor(Math.random() * prompts.length)];
 }
 
@@ -228,28 +132,17 @@ const conversationMemory = new Map();
 const lastReplyCache = new Map();
 
 function getMemory(userId) {
-  if (!conversationMemory.has(userId)) {
-    conversationMemory.set(userId, []);
-  }
+  if (!conversationMemory.has(userId)) conversationMemory.set(userId, []);
   return conversationMemory.get(userId);
 }
-
 function addToMemory(userId, role, content) {
   const mem = getMemory(userId);
   mem.push({ role, content });
   if (mem.length > 25) mem.shift();
 }
-
-function getContext(userId) {
-  return getMemory(userId).slice(-25);
-}
-
-function getLastReply(userId) {
-  return lastReplyCache.get(userId) || null;
-}
-function setLastReply(userId, reply) {
-  lastReplyCache.set(userId, reply);
-}
+function getContext(userId) { return getMemory(userId).slice(-25); }
+function getLastReply(userId) { return lastReplyCache.get(userId) || null; }
+function setLastReply(userId, reply) { lastReplyCache.set(userId, reply); }
 
 function isPriceQuery(text) {
   const keywords = ['سعر', 'اسعار', 'السعر', 'الاسعار', 'ثمن', 'أثمان', 'تكلفة', 'نقاط', 'النقاط', 'P.V', 'pv', 'سعر العضو', 'سعر غير العضو', 'قائمة الأسعار', 'المنتجات', 'منتج'];
@@ -260,17 +153,37 @@ function isPriceQuery(text) {
 async function handlePriceQuery(userId, question, msgId) {
   let products = await rag.loadPriceList();
   if (!products || products.length === 0) {
-    await sendLongMessage(userId, '⚠️ عذراً، لا تتوفر قائمة الأسعار حالياً. يرجى المحاولة لاحقاً.', msgId);
+    await sendLongMessage(userId, '⚠️ عذراً، لا تتوفر قائمة الأسعار حالياً.', msgId);
     return;
   }
   const results = rag.searchPriceList(question);
-  let reply = rag.formatPriceReply(results, question);
-  // إضافة تأكيد بإرسال الملف
-  reply += '\n\n📎 *سأرسل لك الملف الآن لتطلع على القائمة الكاملة.*';
-  await sendLongMessage(userId, reply, msgId);
+  if (!results || results.length === 0) {
+    await sendLongMessage(userId, '🔍 لم أجد منتجات تطابق بحثك.', msgId);
+    return;
+  }
+
+  // 1. إرسال الصورة
+  try {
+    const imageBuffer = rag.generatePriceImage(results, question);
+    const entity = await getCachedEntity(userId);
+    await client.sendMessage(entity, {
+      photo: { file: imageBuffer },
+      caption: `📊 *نتائج البحث عن: "${question}"*`
+    });
+  } catch (e) {
+    console.error('❌ فشل إنشاء الصورة:', e);
+    // بديل: إرسال النص
+    const reply = rag.formatPriceReply(results, question);
+    await sendLongMessage(userId, reply, msgId);
+  }
+
+  // 2. إرسال رسالة نصية تأكيدية
+  await sendLongMessage(userId, `📎 *سأرسل لك ملف PDF الآن لتطلع على القائمة الكاملة.*`);
+
+  // 3. إرسال ملف PDF
   const sent = await rag.sendPriceListPDF(userId, client);
   if (!sent) {
-    await sendLongMessage(userId, '⚠️ تعذر إرسال ملف PDF، لكن يمكنك طلب المساعدة من الإدارة.', null);
+    await sendLongMessage(userId, '⚠️ تعذر إرسال ملف PDF، لكن يمكنك طلب المساعدة.', null);
   }
 }
 
@@ -278,31 +191,12 @@ async function getFastReply(question, contextStr) {
   let reply = null;
   try {
     const results = await extra.chatWithModels(question, contextStr);
-    for (const r of results) {
-      if (r.answer && r.answer.trim().length > 0) {
-        reply = r.answer;
-        break;
-      }
-    }
-  } catch (e) {}
+    for (const r of results) if (r.answer && r.answer.trim()) { reply = r.answer; break; }
+  } catch(e) {}
   if (!reply) {
-    try {
-      const result = await extra.chatWithChatX(question, 'gemini');
-      if (result.answer) reply = result.answer;
-    } catch (e) {}
+    try { const res = await extra.chatWithChatX(question, 'gemini'); if (res.answer) reply = res.answer; } catch(e) {}
   }
-  if (!reply) {
-    try {
-      const results = await extra.multiSearch(question);
-      for (const r of results) {
-        if (r.answer && r.answer.trim().length > 0) {
-          reply = r.answer;
-          break;
-        }
-      }
-    } catch (e) {}
-  }
-  if (!reply) reply = 'عذراً، لم أستطع معالجة سؤالك حالياً. يرجى إعادة صياغته.';
+  if (!reply) reply = 'عذراً، لم أستطع معالجة سؤالك حالياً.';
   return reply;
 }
 
@@ -318,20 +212,13 @@ async function getReply(userId, question, msgId) {
   reply = cleanText(reply);
   reply = reply.replace(/[#*_|~`>+=]/g, '');
   reply = reply.replace(/هذه المعلومات مأخوذة من ملفات DXN/gi, '');
-  reply = reply.replace(/من ملفات DXN/gi, '');
-  reply = reply.replace(/وفقاً للمعلومات/gi, '');
   reply = reply.replace(/^مروان:\s*/gi, '');
   if (lastReply && reply === lastReply) {
-    const alternatives = [
-      'هل هناك تفاصيل إضافية تود معرفتها؟',
-      'أخبرني ما الذي تريد معرفة المزيد عنه.',
-      'هل لديك أي استفسار آخر؟'
-    ];
-    reply = alternatives[Math.floor(Math.random() * alternatives.length)];
+    const alts = ['هل هناك تفاصيل إضافية؟', 'أخبرني ماذا تريد معرفة المزيد عنه.', 'هل لديك أي استفسار آخر؟'];
+    reply = alts[Math.floor(Math.random() * alts.length)];
   }
   await sendLongMessage(userId, reply, msgId);
   setLastReply(userId, reply);
-  return null;
 }
 
 export async function initTelegram() {
@@ -380,32 +267,22 @@ function setupListener() {
         text = msg.text || msg.message;
       }
       if (!userId || !chatId) return;
-      if (chatId < 0) {
-        console.log(`⏭️ Skipping group ${chatId}`);
-        return;
-      }
+      if (chatId < 0) return;
       if (!text) text = 'وسائط';
       console.log(`📩 Private chat from ${userId}`);
       console.log(`📝 Raw text: "${text}"`);
       addToMemory(userId, 'user', text);
       if (isGreeting(text)) {
         const greeting = getGreetingReply(text);
-        console.log(`✅ Greeting reply: "${greeting}"`);
         addToMemory(userId, 'assistant', greeting);
         await sendLongMessage(userId, greeting, msg.id);
-        const promptMsg = getPromptMessage();
-        console.log(`✅ Prompt message: "${promptMsg}"`);
-        addToMemory(userId, 'assistant', promptMsg);
-        await sendLongMessage(userId, promptMsg, null);
+        await sendLongMessage(userId, getPromptMessage(), null);
         return;
       }
       const startTime = Date.now();
-      console.log('⚡ Getting reply...');
       await getReply(userId, text, msg.id);
       console.log(`⚡ Total time: ${Date.now() - startTime}ms`);
-    } catch(e) {
-      console.error('Handler error:', e);
-    }
+    } catch(e) { console.error('Handler error:', e); }
   });
   logger.info('👂 Listening for messages');
 }
