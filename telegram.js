@@ -228,6 +228,19 @@ function normalizeText(text) {
   return normalized.trim().toLowerCase();
 }
 
+// ===== دوال التحية والترحيب المخصصة =====
+const GREETING_TEMPLATE = `السلام عليكم ورحمة الله وبركاته. أهلاً وسهلاً بك. سعيد بتواصلك معنا.
+
+قبل ما أشرح لك فكرة المشروع، أحب أفهم وضعك أكثر عشان أقدر أقدّم لك معلومات تناسبك.
+
+أول سؤال، إيش هدفك الأساسي من البحث عن الفرصة هذي؟ دخل إضافي؟ مشروع أكبر؟ ولا مجرد استكشاف لمعرفة الخيارات؟
+
+وسؤالي الثاني، هل أنت حالياً موظف، طالب، صاحب عمل، أو ما إيش وضعك الحالي تقريباً؟
+
+وثالث شي، كم ساعة تقريباً تقدر تخصص أسبوعياً لو قررت تبدأ أي مشروع؟
+
+إذا تجاوبني على هذي الأسئلة، بقدّم لك شرح يناسب وضعك بالضبط بدون أي تشتيت. يناسبك؟`;
+
 function isGreeting(text) {
   const greetings = ['السلام عليكم', 'سلام', 'مرحبا', 'أهلا', 'هلا', 'الو', 'هلو', 'صباح الخير', 'مساء الخير', 'يا هلا', 'هاي', 'كيفك', 'كيف حالك', 'كيف الحال', 'اخبارك', 'شو اخبارك', 'شحالك', 'وشحالك'];
   const normalized = normalizeText(text);
@@ -238,18 +251,7 @@ function isGreeting(text) {
 }
 
 function getGreetingReply(text) {
-  const lower = normalizeText(text);
-  if (lower.includes('السلام عليكم')) return 'وعليكم السلام ورحمة الله وبركاته';
-  if (lower.includes('سلام')) return 'وعليكم السلام';
-  if (lower.includes('مرحبا') || lower.includes('أهلا') || lower.includes('هلا')) return 'أهلاً بك';
-  if (lower.includes('هاي') || lower.includes('الو') || lower.includes('هلو')) return 'أهلاً';
-  if (lower.includes('صباح الخير')) return 'صباح النور';
-  if (lower.includes('مساء الخير')) return 'مساء النور';
-  if (lower.includes('كيفك') || lower.includes('كيف حالك') || lower.includes('كيف الحال') || lower.includes('شحالك') || lower.includes('وشحالك')) {
-    return 'بخير الحمد لله';
-  }
-  if (lower.includes('اخبارك') || lower.includes('شو اخبارك')) return 'الحمد لله بخير';
-  return 'أهلاً بك';
+  return GREETING_TEMPLATE;
 }
 
 function getPromptMessage() {
@@ -264,7 +266,8 @@ function getPromptMessage() {
 
 const conversationMemory = new Map();
 const lastReplyCache = new Map();
-const sentFilesCache = new Map(); // تتبع الملفات المرسلة لكل مستخدم
+const sentFilesCache = new Map();
+const userStateCache = new Map(); // لتتبع مرحلة المحادثة (مثلاً انتظار إجابة الأسئلة)
 
 function getMemory(userId) {
   if (!conversationMemory.has(userId)) {
@@ -348,6 +351,36 @@ function detectPDFRequest(text) {
   return null;
 }
 
+// ===== كشف أسئلة البدء والتدريب =====
+function isStartupQuery(text) {
+  const lower = text.toLowerCase();
+  const keywords = ['كيف أبدا', 'كيفية البدء', 'كيف اربح', 'كيف أبدأ', 'بدء', 'البداية', 'التسجيل', 'الدورات', 'تدريب', 'كيف اشترك', 'طريقة الانضمام', 'انضمام', 'عضو'];
+  for (const kw of keywords) {
+    if (lower.includes(kw)) return true;
+  }
+  return false;
+}
+
+function getStartupReply() {
+  return `📘 *كيف تبدأ مع DXN؟*
+
+مرحباً! للانضمام إلى DXN والبدء في تحقيق دخل، الخطوات كالتالي:
+
+1. **التسجيل**: يمكنك التسجيل كعضو عبر موقع DXN الرسمي أو عن طريق أحد الموزعين المعتمدين. ستحتاج إلى تقديم بياناتك واختيار حزمة البداية المناسبة.
+
+2. **الدورات التدريبية**: بعد التسجيل، نوفر لك دورات تدريبية مجانية عبر الإنترنت لتعلم أساسيات التسويق الشبكي، وكيفية استخدام المنتجات، وطرق بناء فريقك.
+
+3. **الدعم**: فريقنا يقدم لك متابعة مستمرة عبر مجموعات واتساب وتلغرام، بالإضافة إلى مواد تدريبية مسجلة.
+
+4. **البدء بالربح**: يمكنك البدء ببيع المنتجات للأصدقاء والمعارف، أو بناء فريق والاستفادة من العمولات. كلما زاد حجم فريقك، زاد دخلها.
+
+🔹 *للحصول على شرح مفصل يناسب وضعك الخاص، يرجى الإجابة على الأسئلة التي طرحتها سابقاً (هدفك، وضعك الحالي، الوقت المتاح) وسأقدم لك خطة مخصصة.*
+
+📄 *يمكنك أيضاً تحميل الملفات التالية لمزيد من المعلومات:*`;
+
+  // يمكن إضافة روابط للملفات إذا رغبت
+}
+
 async function getFastReply(question, contextStr) {
   let reply = null;
   try {
@@ -399,12 +432,34 @@ async function getReply(userId, question, msgId) {
   const contextStr = context.map(m => `${m.role}: ${m.content}`).join('\n');
   const lastReply = getLastReply(userId);
 
+  // ===== معالجة طلب البدء والتدريب =====
+  if (isStartupQuery(question)) {
+    let reply = getStartupReply();
+    // إضافة نص إضافي من الذكاء الاصطناعي اختياري
+    try {
+      const aiReply = await getFastReply(question, contextStr);
+      if (aiReply && aiReply.length > 20) {
+        reply += '\n\n' + aiReply;
+      }
+    } catch(e) {}
+    await sendLongMessage(userId, reply, msgId);
+    // إرسال الملفات التعريفية إذا لم ترسل من قبل
+    if (!hasSentFile(userId, 'intro')) {
+      await sendPDF(userId, 'intro', '📄 البرنامج التعريفي الشامل ل DXN', msgId);
+      markFileSent(userId, 'intro');
+    }
+    setLastReply(userId, reply);
+    return;
+  }
+
+  // ===== معالجة طلب الملفات (الأسعار والمنتجات) =====
   const pdfRequest = detectPDFRequest(question);
   if (pdfRequest) {
     console.log('📄 تم الكشف عن طلب ملفات:', pdfRequest.topic);
     console.log('🔑 المفاتيح:', pdfRequest.keys);
   }
 
+  // الحصول على الرد العام
   let reply = await getFastReply(question, contextStr);
   reply = cleanText(reply);
   reply = reply.replace(/[#*_|~`>+=]/g, '');
@@ -434,6 +489,7 @@ async function getReply(userId, question, msgId) {
     }
   }
 
+  // منع التكرار
   if (lastReply && reply === lastReply) {
     const alternatives = [
       'هل هناك تفاصيل إضافية تود معرفتها؟',
@@ -445,7 +501,7 @@ async function getReply(userId, question, msgId) {
 
   await sendLongMessage(userId, reply, msgId);
 
-  // إرسال الملفات فقط إذا لم تكن قد أرسلت من قبل أو كان الطلب بإعادة الإرسال
+  // إرسال الملفات إذا لزم الأمر
   if (pdfRequest && shouldSendFiles) {
     for (const key of pdfRequest.keys) {
       const caption = pdfRequest.multi ? `📄 ${key === 'price_list' ? 'قائمة الأسعار' : 'كتالوج المنتجات'}` : `📄 ${pdfRequest.topic}`;
@@ -521,21 +577,18 @@ function setupListener() {
 
       addToMemory(userId, 'user', text);
 
+      // ===== معالجة التحية =====
       if (isGreeting(text)) {
-        const greeting = getGreetingReply(text);
-        console.log(`✅ Greeting reply: "${greeting}"`);
-        addToMemory(userId, 'assistant', greeting);
-        await sendLongMessage(userId, greeting, msg.id);
-
-        const promptMsg = getPromptMessage();
-        console.log(`✅ Prompt message: "${promptMsg}"`);
-        addToMemory(userId, 'assistant', promptMsg);
-        await sendLongMessage(userId, promptMsg, null);
+        const greetingReply = getGreetingReply(text);
+        console.log(`✅ Greeting reply sent.`);
+        addToMemory(userId, 'assistant', greetingReply);
+        await sendLongMessage(userId, greetingReply, msg.id);
+        // لا نرسل رسالة إضافية (الترحيب يحتوي على أسئلة)
         return;
       }
 
       const startTime = Date.now();
-      console.log('⚡ Getting fast reply...');
+      console.log('⚡ Getting reply...');
       await getReply(userId, text, msg.id);
       console.log(`⚡ Total time: ${Date.now() - startTime}ms`);
 
@@ -543,7 +596,7 @@ function setupListener() {
       console.error('Handler error:', e);
     }
   });
-  logger.info('👂 Listening (ultra fast mode)');
+  logger.info('👂 Listening...');
 }
 
 export function getClient() { return client; }
