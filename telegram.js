@@ -489,3 +489,4 @@ function setupListener() {
 
 export function getClient() { return client; }
 export default { initTelegram, getClient };
+// تحديث لإعادة النشر
