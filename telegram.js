@@ -6,6 +6,7 @@ import path from 'path';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import MARWAN_PROMPT from './prompts/marwan.js';
+import { generatePricePDF } from './rag.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -39,7 +40,6 @@ const TELEGRAM_OPTIONS = {
   timeout: 5,
 };
 
-// ✅ قائمة ملفات PDF المتاحة
 const PDF_FILES = {
   products: 'كتالوج المنتجات مع الفوائد.pdf',
   products_alt: 'ملف المنتجات روعة .pdf',
@@ -107,18 +107,34 @@ function formatReply(text) {
 
 async function sendPDF(userId, fileKey, caption, replyToMsgId = null) {
   const pdfDir = path.join(process.cwd(), 'knowledge', 'pdfs');
-  const fileName = PDF_FILES[fileKey];
+  let fileName = PDF_FILES[fileKey];
   if (!fileName) {
     console.log('⚠️ مفتاح الملف غير صحيح:', fileKey);
     return false;
   }
-  const filePath = path.join(pdfDir, fileName);
+  let filePath = path.join(pdfDir, fileName);
   console.log('📄 محاولة إرسال الملف:', fileName);
   console.log('📂 المسار الكامل:', filePath);
+
   if (!await fs.pathExists(filePath)) {
-    console.log('❌ الملف غير موجود في المسار:', filePath);
-    return false;
+    if (fileKey === 'products' || fileKey === 'price_list') {
+      console.log('⚠️ الملف غير موجود، سيتم إنشاء ملف ديناميكي.');
+      const pdfBytes = await generatePricePDF();
+      if (!pdfBytes) {
+        console.log('❌ فشل إنشاء ملف PDF ديناميكي');
+        return false;
+      }
+      const tempName = fileKey === 'price_list' ? 'قائمة_أسعار_DXN.pdf' : 'كتالوج_منتجات_DXN.pdf';
+      const tempPath = path.join(pdfDir, tempName);
+      await fs.writeFile(tempPath, pdfBytes);
+      filePath = tempPath;
+      fileName = tempName;
+    } else {
+      console.log('❌ الملف غير موجود ولا يوجد حل احتياطي:', fileKey);
+      return false;
+    }
   }
+
   try {
     const entity = await getCachedEntity(userId);
     const options = { file: filePath, caption: caption || '📄 ' + fileName };
@@ -195,7 +211,7 @@ async function sendLongMessage(userId, text, replyToMsgId = null) {
       console.error('❌ فشل إرسال الجزء', i+1, ':', e.message);
     }
     if (i < finalParts.length - 1) {
-      console.log('⏳ انتظار 40 ثانية قبل إرسال الجزء التالي...');
+      console.log('⏳ انتظار 5 ثوانٍ قبل إرسال الجزء التالي...');
       await new Promise(resolve => setTimeout(resolve, 5000));
     }
   }
@@ -211,6 +227,18 @@ function normalizeText(text) {
   return normalized.trim().toLowerCase();
 }
 
+const GREETING_TEMPLATE = `السلام عليكم ورحمة الله وبركاته. أهلاً وسهلاً بك. سعيد بتواصلك معنا.
+
+قبل ما أشرح لك فكرة المشروع، أحب أفهم وضعك أكثر عشان أقدر أقدّم لك معلومات تناسبك.
+
+أول سؤال، إيش هدفك الأساسي من البحث عن الفرصة هذي؟ دخل إضافي؟ مشروع أكبر؟ ولا مجرد استكشاف لمعرفة الخيارات؟
+
+وسؤالي الثاني، هل أنت حالياً موظف، طالب، صاحب عمل، أو ما إيش وضعك الحالي تقريباً؟
+
+وثالث شي، كم ساعة تقريباً تقدر تخصص أسبوعياً لو قررت تبدأ أي مشروع؟
+
+إذا تجاوبني على هذي الأسئلة، بقدّم لك شرح يناسب وضعك بالضبط بدون أي تشتيت. يناسبك؟`;
+
 function isGreeting(text) {
   const greetings = ['السلام عليكم', 'سلام', 'مرحبا', 'أهلا', 'هلا', 'الو', 'هلو', 'صباح الخير', 'مساء الخير', 'يا هلا', 'هاي', 'كيفك', 'كيف حالك', 'كيف الحال', 'اخبارك', 'شو اخبارك', 'شحالك', 'وشحالك'];
   const normalized = normalizeText(text);
@@ -221,18 +249,7 @@ function isGreeting(text) {
 }
 
 function getGreetingReply(text) {
-  const lower = normalizeText(text);
-  if (lower.includes('السلام عليكم')) return 'وعليكم السلام ورحمة الله وبركاته';
-  if (lower.includes('سلام')) return 'وعليكم السلام';
-  if (lower.includes('مرحبا') || lower.includes('أهلا') || lower.includes('هلا')) return 'أهلاً بك';
-  if (lower.includes('هاي') || lower.includes('الو') || lower.includes('هلو')) return 'أهلاً';
-  if (lower.includes('صباح الخير')) return 'صباح النور';
-  if (lower.includes('مساء الخير')) return 'مساء النور';
-  if (lower.includes('كيفك') || lower.includes('كيف حالك') || lower.includes('كيف الحال') || lower.includes('شحالك') || lower.includes('وشحالك')) {
-    return 'بخير الحمد لله';
-  }
-  if (lower.includes('اخبارك') || lower.includes('شو اخبارك')) return 'الحمد لله بخير';
-  return 'أهلاً بك';
+  return GREETING_TEMPLATE;
 }
 
 function getPromptMessage() {
@@ -247,6 +264,7 @@ function getPromptMessage() {
 
 const conversationMemory = new Map();
 const lastReplyCache = new Map();
+const sentFilesCache = new Map();
 
 function getMemory(userId) {
   if (!conversationMemory.has(userId)) {
@@ -272,11 +290,24 @@ function setLastReply(userId, reply) {
   lastReplyCache.set(userId, reply);
 }
 
-// ===== كشف طلب الملفات (يدعم ملفات متعددة) =====
+function hasSentFile(userId, fileType) {
+  const userSent = sentFilesCache.get(userId) || {};
+  return userSent[fileType] || false;
+}
+
+function markFileSent(userId, fileType) {
+  const userSent = sentFilesCache.get(userId) || {};
+  userSent[fileType] = true;
+  sentFilesCache.set(userId, userSent);
+}
+
 function detectPDFRequest(text) {
   const lower = text.toLowerCase();
 
-  // ===== طلب الأسعار أو المنتجات → إرسال ملفين (الأسعار + الكتالوج) =====
+  if (lower.includes('ارسل الملف') || lower.includes('الملفات') || lower.includes('أرسل الملف') || lower.includes('اعادة ارسال')) {
+    return { keys: ['price_list', 'products'], topic: 'الأسعار والمنتجات', multi: true, forceResend: true };
+  }
+
   if (
     lower.includes('سعر') || lower.includes('اسعار') ||
     lower.includes('منتج') || lower.includes('المنتجات') ||
@@ -284,26 +315,65 @@ function detectPDFRequest(text) {
     lower.includes('فوائد')
   ) {
     return {
-      keys: ['price_list', 'products'],     // ملف الأسعار + ملف الكتالوج
+      keys: ['price_list', 'products'],
       topic: 'الأسعار والمنتجات',
-      multi: true
+      multi: true,
+      forceResend: false
     };
   }
 
-  // ===== طلب ملفات منفردة أخرى =====
   if (lower.includes('خطة مالية') || lower.includes('الخطة المالية') || lower.includes('مالية') || lower.includes('أرباح')) {
-    return { keys: ['financial'], topic: 'الخطة المالية', multi: false };
+    return { keys: ['financial'], topic: 'الخطة المالية', multi: false, forceResend: false };
   }
   if (lower.includes('خطة تسويقية') || lower.includes('الخطة التسويقية') || lower.includes('تسويق')) {
-    return { keys: ['marketing'], topic: 'الخطة التسويقية', multi: false };
+    return { keys: ['marketing'], topic: 'الخطة التسويقية', multi: false, forceResend: false };
   }
   const companyKeywords = ['تعريف', 'الشركة', 'دي اكس ان', 'دي إكس ان', 'dxn', 'برنامج تعريفي', 'عن dxn', 'ما هي dxn', 'ما هو dxn', 'ما هي دي اكس ان', 'ما هو دي اكس ان', 'ما هي شركة', 'ما هو شركة', 'تعرف', 'تعرف على', 'نبذة عن'];
   for (const kw of companyKeywords) {
     if (lower.includes(kw)) {
-      return { keys: ['intro'], topic: 'شركة DXN', multi: false };
+      return { keys: ['intro'], topic: 'شركة DXN', multi: false, forceResend: false };
     }
   }
   return null;
+}
+
+// ===== ردود ثابتة للأسئلة الشائعة =====
+function isStartupQuery(text) {
+  const lower = text.toLowerCase();
+  const keywords = [
+    'كيف أبدا', 'كيفية البدء', 'كيف اربح', 'كيف أبدأ', 'بدء', 'البداية',
+    'التسجيل', 'الدورات', 'تدريب', 'كيف اشترك', 'طريقة الانضمام',
+    'انضمام', 'عضو', 'رابط', 'لقاء', 'اجتماع', 'meet', 'الأحد', 'الاحد',
+    'join', 'register', 'سجل', 'تسجيل'
+  ];
+  for (const kw of keywords) {
+    if (lower.includes(kw)) return true;
+  }
+  return false;
+}
+
+function getStartupReply() {
+  return `📘 *كيف تبدأ مع DXN؟*
+
+مرحباً! للانضمام إلى DXN والبدء في تحقيق دخل، الخطوات كالتالي:
+
+1. **التسجيل**: يمكنك التسجيل كعضو عبر موقع DXN الرسمي أو عن طريق أحد الموزعين المعتمدين.
+🔗 *رابط التسجيل:* [اضغط هنا للتسجيل](https://old.eworldglobal.com/s/accreg/ar/145229981)
+
+2. **الدورات التدريبية**: بعد التسجيل، نوفر لك دورات تدريبية مجانية عبر الإنترنت لتعلم أساسيات التسويق الشبكي، وكيفية استخدام المنتجات، وطرق بناء فريقك.
+
+3. **الدعم**: فريقنا يقدم لك متابعة مستمرة عبر مجموعات واتساب وتلغرام، بالإضافة إلى مواد تدريبية مسجلة.
+
+4. **اللقاء الأسبوعي**: ندعوكم لحضور لقاء عبر Google Meet بعنوان:
+🎯 *تطبيقات عملية لنظام العمل*
+📅 اليوم: الأحد 🕘 الوقت: 9:00 مساءً
+🔗 *رابط اللقاء:* [اضغط هنا للانضمام](https://meet.google.com/bod-qpsj-esg)
+
+5. **البدء بالربح**: يمكنك البدء ببيع المنتجات للأصدقاء والمعارف، أو بناء فريق والاستفادة من العمولات. كلما زاد حجم فريقك، زاد دخلها.
+
+🔹 *للحصول على شرح مفصل يناسب وضعك الخاص، يرجى الإجابة على الأسئلة التي طرحتها سابقاً (هدفك، وضعك الحالي، الوقت المتاح) وسأقدم لك خطة مخصصة.*
+
+📄 *يمكنك أيضاً تحميل الملفات التالية لمزيد من المعلومات:*`;
 }
 
 async function getFastReply(question, contextStr) {
@@ -357,6 +427,18 @@ async function getReply(userId, question, msgId) {
   const contextStr = context.map(m => `${m.role}: ${m.content}`).join('\n');
   const lastReply = getLastReply(userId);
 
+  // ===== معالجة طلب البدء والتدريب (رد ثابت) =====
+  if (isStartupQuery(question)) {
+    let reply = getStartupReply();
+    await sendLongMessage(userId, reply, msgId);
+    if (!hasSentFile(userId, 'intro')) {
+      await sendPDF(userId, 'intro', '📄 البرنامج التعريفي الشامل ل DXN', msgId);
+      markFileSent(userId, 'intro');
+    }
+    setLastReply(userId, reply);
+    return;
+  }
+
   const pdfRequest = detectPDFRequest(question);
   if (pdfRequest) {
     console.log('📄 تم الكشف عن طلب ملفات:', pdfRequest.topic);
@@ -371,12 +453,23 @@ async function getReply(userId, question, msgId) {
   reply = reply.replace(/وفقاً للمعلومات/gi, '');
   reply = reply.replace(/^مروان:\s*/gi, '');
 
+  let shouldSendFiles = true;
+  let alreadySentMessage = '';
+
+  if (pdfRequest && !pdfRequest.forceResend) {
+    const sentPrice = hasSentFile(userId, 'price_list');
+    const sentCatalog = hasSentFile(userId, 'products');
+    if (sentPrice && sentCatalog) {
+      shouldSendFiles = false;
+      alreadySentMessage = '\n\n📌 *تم إرسال الملفات مسبقاً. إذا كنت ترغب في إعادة استلامها، اكتب "أرسل الملف".*';
+    }
+  }
+
   if (pdfRequest) {
-    // رسالة خاصة عند طلب الأسعار/المنتجات (ملفين)
     if (pdfRequest.multi) {
-      reply = reply + `\n\n📄 *سأرسل لك ملفين PDF يحتويان على الأسعار والفوائد وأنواع المنتجات. يمكنك الاطلاع عليهما للمزيد.*`;
+      reply = reply + `\n\n📄 *سأرسل لك ملفين PDF يحتويان على الأسعار والفوائد وأنواع المنتجات. يمكنك الاطلاع عليهما للمزيد.*${alreadySentMessage}`;
     } else {
-      reply = reply + `\n\n📄 *سأرسل لك ملفاً يحتوي على تفاصيل أكثر عن ${pdfRequest.topic}. يمكنك الاطلاع عليه للمزيد.*`;
+      reply = reply + `\n\n📄 *سأرسل لك ملفاً يحتوي على تفاصيل أكثر عن ${pdfRequest.topic}. يمكنك الاطلاع عليه للمزيد.*${alreadySentMessage}`;
     }
   }
 
@@ -391,12 +484,16 @@ async function getReply(userId, question, msgId) {
 
   await sendLongMessage(userId, reply, msgId);
 
-  // إرسال الملفات المطلوبة
-  if (pdfRequest) {
+  if (pdfRequest && shouldSendFiles) {
     for (const key of pdfRequest.keys) {
       const caption = pdfRequest.multi ? `📄 ${key === 'price_list' ? 'قائمة الأسعار' : 'كتالوج المنتجات'}` : `📄 ${pdfRequest.topic}`;
-      await sendPDF(userId, key, caption, msgId);
+      const success = await sendPDF(userId, key, caption, msgId);
+      if (success) {
+        markFileSent(userId, key);
+      }
     }
+  } else if (pdfRequest && !shouldSendFiles) {
+    console.log(`⏭️ تم تخطي إرسال الملفات لأنها أرسلت مسبقاً للمستخدم ${userId}`);
   }
 
   setLastReply(userId, reply);
@@ -463,20 +560,15 @@ function setupListener() {
       addToMemory(userId, 'user', text);
 
       if (isGreeting(text)) {
-        const greeting = getGreetingReply(text);
-        console.log(`✅ Greeting reply: "${greeting}"`);
-        addToMemory(userId, 'assistant', greeting);
-        await sendLongMessage(userId, greeting, msg.id);
-
-        const promptMsg = getPromptMessage();
-        console.log(`✅ Prompt message: "${promptMsg}"`);
-        addToMemory(userId, 'assistant', promptMsg);
-        await sendLongMessage(userId, promptMsg, null);
+        const greetingReply = getGreetingReply(text);
+        console.log(`✅ Greeting reply sent.`);
+        addToMemory(userId, 'assistant', greetingReply);
+        await sendLongMessage(userId, greetingReply, msg.id);
         return;
       }
 
       const startTime = Date.now();
-      console.log('⚡ Getting fast reply...');
+      console.log('⚡ Getting reply...');
       await getReply(userId, text, msg.id);
       console.log(`⚡ Total time: ${Date.now() - startTime}ms`);
 
@@ -484,7 +576,7 @@ function setupListener() {
       console.error('Handler error:', e);
     }
   });
-  logger.info('👂 Listening (ultra fast mode)');
+  logger.info('👂 Listening...');
 }
 
 export function getClient() { return client; }
