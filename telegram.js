@@ -227,18 +227,10 @@ function getStartupReply() {
 
 مرحباً! للانضمام إلى DXN والبدء في تحقيق دخل، الخطوات كالتالي:
 
-1. **التسجيل**: سجل الآن عبر هذا الرابط الرسمي:
-🔗 https://old.eworldglobal.com/s/accreg/ar/145229981
-
+1. **التسجيل**: سجل الآن عبر الرابط الرسمي (سيتم إرسال الرابط في رسالة منفصلة).
 2. **الدورات التدريبية**: بعد التسجيل، نوفر لك دورات تدريبية مجانية عبر الإنترنت لتعلم أساسيات التسويق الشبكي، وكيفية استخدام المنتجات، وطرق بناء فريقك.
-
 3. **الدعم**: فريقنا يقدم لك متابعة مستمرة عبر مجموعات واتساب وتلغرام، بالإضافة إلى مواد تدريبية مسجلة.
-
-4. **اللقاء التعريفي الأسبوعي**: ندعوك لحضور لقاء عبر Google Meet بعنوان:
-🎯 تطبيقات عملية لنظام العمل
-📅 اليوم: الأحد 🕘 الوقت: 9:00 مساءً
-🔗 https://meet.google.com/bod-qpsj-esg
-
+4. **اللقاء التعريفي الأسبوعي**: ندعوك لحضور لقاء عبر Google Meet (سيتم إرسال الرابط في رسالة منفصلة).
 5. **البدء بالربح**: ابدأ ببيع المنتجات أو بناء فريق واستفد من العمولات. كلما زاد فريقك، زاد دخلك.
 
 🔹 *للحصول على شرح مفصل يناسب وضعك الخاص، أجب على الأسئلة التي طرحتها سابقاً (هدفك، وضعك الحالي، الوقت المتاح) وسأقدم لك خطة مخصصة.*
@@ -289,6 +281,11 @@ async function getReply(userId, question, msgId) {
     console.log(`✅ Startup query detected for user ${userId}`);
     const reply = getStartupReply();
     await sendLongMessage(userId, reply, msgId);
+    
+    // إرسال الروابط في رسائل منفصلة
+    await sendLongMessage(userId, '🔗 *رابط التسجيل الرسمي:*\nhttps://old.eworldglobal.com/s/accreg/ar/145229981');
+    await sendLongMessage(userId, '🔗 *رابط اللقاء الأسبوعي:*\nhttps://meet.google.com/bod-qpsj-esg');
+    
     if (!hasSentFile(userId, 'intro')) {
       await sendPDF(userId, 'intro', '📄 البرنامج التعريفي الشامل ل DXN', msgId);
       markFileSent(userId, 'intro');
