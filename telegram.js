@@ -283,7 +283,7 @@ async function getReply(userId, question, msgId) {
     await sendLongMessage(userId, reply, msgId);
     
     // إرسال الروابط في رسائل منفصلة
-    await sendLongMessage(userId, '🔗 *رابط التسجيل الرسمي:*\n‎https://old.eworldglobal.com/s/accreg/ar/145229981‎');
+    await sendLongMessage(userId, '🔗 *رابط التسجيل الرسمي:*\n‎<a href="https://old.eworldglobal.com/s/accreg/ar/145229981">اضغط هنا للتسجيل</a>‎');
     await sendLongMessage(userId, '🔗 *رابط اللقاء الأسبوعي:*\nhttps://meet.google.com/bod-qpsj-esg');
     
     if (!hasSentFile(userId, 'intro')) {
