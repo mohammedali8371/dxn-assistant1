@@ -180,7 +180,6 @@ function markFileSent(userId, fileType) {
   sentFilesCache.set(userId, userSent);
 }
 
-// ===== الكشف الشامل لكل صيغ البدء والتسجيل والانضمام واللقاء =====
 function isStartupQuery(text) {
   const lower = text.toLowerCase().trim();
   const keywords = [
@@ -202,7 +201,7 @@ function isStartupQuery(text) {
   ];
   for (const kw of keywords) {
     if (lower.includes(kw)) {
-      console.log(`🔍 detected startup keyword: "${kw}" in text: "${text}"`);
+      console.log(`🔍 detected startup keyword: "${kw}"`);
       return true;
     }
   }
@@ -216,7 +215,7 @@ function isStartupQuery(text) {
   ];
   for (const pattern of rootPatterns) {
     if (pattern.test(lower)) {
-      console.log(`🔍 detected root pattern: ${pattern} in text: "${text}"`);
+      console.log(`🔍 detected root pattern: ${pattern}`);
       return true;
     }
   }
@@ -229,7 +228,7 @@ function getStartupReply() {
 مرحباً! للانضمام إلى DXN والبدء في تحقيق دخل، الخطوات كالتالي:
 
 1. **التسجيل**: سجل الآن عبر هذا الرابط الرسمي:
-🔗 https://old.eworldglobal.com/s/accreg/ar/145229981
+🔗 [اضغط هنا للتسجيل](https://old.eworldglobal.com/s/accreg/ar/145229981)
 
 2. **الدورات التدريبية**: بعد التسجيل، نوفر لك دورات تدريبية مجانية عبر الإنترنت لتعلم أساسيات التسويق الشبكي، وكيفية استخدام المنتجات، وطرق بناء فريقك.
 
@@ -238,7 +237,7 @@ function getStartupReply() {
 4. **اللقاء التعريفي الأسبوعي**: ندعوك لحضور لقاء عبر Google Meet بعنوان:
 🎯 تطبيقات عملية لنظام العمل
 📅 اليوم: الأحد 🕘 الوقت: 9:00 مساءً
-🔗 https://meet.google.com/bod-qpsj-esg
+🔗 [رابط اللقاء](https://meet.google.com/bod-qpsj-esg)
 
 5. **البدء بالربح**: ابدأ ببيع المنتجات أو بناء فريق واستفد من العمولات. كلما زاد فريقك، زاد دخلك.
 
@@ -286,7 +285,6 @@ async function getReply(userId, question, msgId) {
   const contextStr = context.map(m => `${m.role}: ${m.content}`).join('\n');
   const lastReply = getLastReply(userId);
 
-  // ===== معالجة أسئلة البدء والتسجيل واللقاء (رد ثابت) =====
   if (isStartupQuery(question)) {
     console.log(`✅ Startup query detected for user ${userId}`);
     const reply = getStartupReply();
