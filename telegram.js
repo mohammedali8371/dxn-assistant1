@@ -411,3 +411,4 @@ function setupListener() {
 export function getClient() { return client; }
 export default { initTelegram, getClient };
 // إعادة نشر لإصلاح الروابط
+// إصلاح رابط التسجيل نهائياً
