@@ -290,11 +290,6 @@ async function getReply(userId, question, msgId) {
     // إرسال الروابط في رسائل منفصلة
 🔗 *رابط التسجيل الرسمي:*
 https://old.eworldglobal.com/s/accreg/ar/145229981
-  const pdfRequest = detectPDFRequest(question);
-  if (pdfRequest) {
-    console.log('📄 طلب ملفات:', pdfRequest.keys);
-  }
-
   let reply = await getFastReply(question, contextStr);
   reply = cleanText(reply);
   reply = reply.replace(/[#*_|~`>+=]/g, '');
@@ -423,4 +418,5 @@ function setupListener() {
 
 export function getClient() { return client; }
 export default { initTelegram, getClient };
+// تحديث الروابط بشكل نهائي
 // تحديث الروابط بشكل نهائي
