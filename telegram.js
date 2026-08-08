@@ -134,7 +134,7 @@ function isGreeting(text) {
   return false;
 }
 
-function getGreetingReply(text) {
+function getGreetingReply() {
   return `السلام عليكم ورحمة الله وبركاته. أهلاً وسهلاً بك. سعيد بتواصلك معنا.
 
 قبل ما أشرح لك فكرة المشروع، أحب أفهم وضعك أكثر عشان أقدر أقدّم لك معلومات تناسبك.
@@ -148,6 +148,10 @@ function getGreetingReply(text) {
 إذا تجاوبني على هذي الأسئلة، بقدّم لك شرح يناسب وضعك بالضبط بدون أي تشتيت. يناسبك؟`;
 }
 
+function getSimpleGreetingReply() {
+  return 'وعليكم السلام ورحمة الله وبركاته. كيف يمكنني مساعدتك؟';
+}
+
 function getPromptMessage() {
   const prompts = ['أي سؤال أو استفسار تفضل، أنا هنا لمساعدتك.', 'كيف يمكنني مساعدتك اليوم؟', 'أخبرني ماذا تريد معرفته عن DXN.'];
   return prompts[Math.floor(Math.random() * prompts.length)];
@@ -156,6 +160,7 @@ function getPromptMessage() {
 const conversationMemory = new Map();
 const lastReplyCache = new Map();
 const sentFilesCache = new Map();
+const greetingSentCache = new Map(); // لتتبع إرسال الترحيب الطويل لكل مستخدم
 
 function getMemory(userId) {
   if (!conversationMemory.has(userId)) conversationMemory.set(userId, []);
@@ -283,8 +288,8 @@ async function getReply(userId, question, msgId) {
     await sendLongMessage(userId, reply, msgId);
     
     // إرسال الروابط في رسائل منفصلة
-    await sendLongMessage(userId, '🔗 *رابط التسجيل الرسمي:*\n[اضغط هنا للتسجيل](https://old.eworldglobal.com/s/accreg/ar/145229981)');
-    await sendLongMessage(userId, '🔗 *رابط اللقاء الأسبوعي:*\n[اضغط هنا لحضور اللقاء](https://meet.google.com/bod-qpsj-esg)');
+    await sendLongMessage(userId, '🔗 *رابط التسجيل الرسمي:*\nhttps://old.eworldglobal.com/s/accreg/ar/145229981');
+    await sendLongMessage(userId, '🔗 *رابط اللقاء الأسبوعي:*\nhttps://meet.google.com/bod-qpsj-esg');
     
     if (!hasSentFile(userId, 'intro')) {
       await sendPDF(userId, 'intro', '📄 البرنامج التعريفي الشامل ل DXN', msgId);
@@ -394,23 +399,36 @@ function setupListener() {
       console.log(`📩 Private chat from ${userId}`);
       console.log(`📝 Raw text: "${text}"`);
       addToMemory(userId, 'user', text);
+
+      // ===== معالجة التحية =====
       if (isGreeting(text)) {
-        const greeting = getGreetingReply(text);
-        addToMemory(userId, 'assistant', greeting);
-        await sendLongMessage(userId, greeting, msg.id);
+        // التحقق إذا كان قد أرسلنا الترحيب الطويل لهذا المستخدم من قبل
+        if (!greetingSentCache.get(userId)) {
+          // أول مرة: نرسل الترحيب الطويل
+          const greetingReply = getGreetingReply();
+          console.log(`✅ First greeting sent to user ${userId}`);
+          addToMemory(userId, 'assistant', greetingReply);
+          await sendLongMessage(userId, greetingReply, msg.id);
+          greetingSentCache.set(userId, true);
+        } else {
+          // مرات لاحقة: نرسل رداً مختصراً
+          const simpleReply = getSimpleGreetingReply();
+          console.log(`✅ Simple greeting reply to user ${userId}`);
+          addToMemory(userId, 'assistant', simpleReply);
+          await sendLongMessage(userId, simpleReply, msg.id);
+        }
         return;
       }
+
       const startTime = Date.now();
       await getReply(userId, text, msg.id);
       console.log(`⚡ Total time: ${Date.now() - startTime}ms`);
-    } catch(e) { console.error('Handler error:', e); }
+    } catch(e) {
+      console.error('Handler error:', e);
+    }
   });
   logger.info('👂 Listening...');
 }
 
 export function getClient() { return client; }
 export default { initTelegram, getClient };
-// إعادة نشر لإصلاح الروابط
-// إصلاح رابط التسجيل نهائياً
-// إصلاح نهائي للرابط
-// إصلاح نهائي للرابط مع تحديث
