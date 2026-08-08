@@ -288,17 +288,8 @@ async function getReply(userId, question, msgId) {
     await sendLongMessage(userId, reply, msgId);
     
     // إرسال الروابط في رسائل منفصلة
-    await sendLongMessage(userId, '🔗 *رابط التسجيل الرسمي:*\nhttps://old.eworldglobal.com/s/accreg/ar/145229981');
-    await sendLongMessage(userId, '🔗 *رابط اللقاء الأسبوعي:*\nhttps://meet.google.com/bod-qpsj-esg');
-    
-    if (!hasSentFile(userId, 'intro')) {
-      await sendPDF(userId, 'intro', '📄 البرنامج التعريفي الشامل ل DXN', msgId);
-      markFileSent(userId, 'intro');
-    }
-    setLastReply(userId, reply);
-    return;
-  }
-
+🔗 *رابط التسجيل الرسمي:*
+https://old.eworldglobal.com/s/accreg/ar/145229981
   const pdfRequest = detectPDFRequest(question);
   if (pdfRequest) {
     console.log('📄 طلب ملفات:', pdfRequest.keys);
@@ -432,3 +423,4 @@ function setupListener() {
 
 export function getClient() { return client; }
 export default { initTelegram, getClient };
+// تحديث الروابط بشكل نهائي
