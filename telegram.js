@@ -420,3 +420,4 @@ export function getClient() { return client; }
 export default { initTelegram, getClient };
 // تحديث الروابط بشكل نهائي
 // تحديث الروابط بشكل نهائي
+// إصلاح الروابط باستخدام parse_mode Markdown
