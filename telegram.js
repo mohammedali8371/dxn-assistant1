@@ -160,7 +160,7 @@ function getPromptMessage() {
 const conversationMemory = new Map();
 const lastReplyCache = new Map();
 const sentFilesCache = new Map();
-const greetingSentCache = new Map(); // لتتبع إرسال الترحيب الطويل لكل مستخدم
+const greetingSentCache = new Map();
 
 function getMemory(userId) {
   if (!conversationMemory.has(userId)) conversationMemory.set(userId, []);
@@ -230,13 +230,12 @@ function isStartupQuery(text) {
 function getStartupReply() {
   return `📘 *كيف تبدأ مع DXN؟*
 
-مرحباً! للانضمام إلى DXN والبدء في تحقيق دخل، الخطوات كالتالي:
+مرحباً! للانضمام إلى DXN والبدء في تحقيق دخل، يرجى التواصل معنا عبر:
 
-1. **التسجيل**: سجل الآن عبر الرابط الرسمي (سيتم إرسال الرابط في رسالة منفصلة).
-2. **الدورات التدريبية**: بعد التسجيل، نوفر لك دورات تدريبية مجانية عبر الإنترنت لتعلم أساسيات التسويق الشبكي، وكيفية استخدام المنتجات، وطرق بناء فريقك.
-3. **الدعم**: فريقنا يقدم لك متابعة مستمرة عبر مجموعات واتساب وتلغرام، بالإضافة إلى مواد تدريبية مسجلة.
-4. **اللقاء التعريفي الأسبوعي**: ندعوك لحضور لقاء عبر Google Meet (سيتم إرسال الرابط في رسالة منفصلة).
-5. **البدء بالربح**: ابدأ ببيع المنتجات أو بناء فريق واستفد من العمولات. كلما زاد فريقك، زاد دخلك.
+📱 *تيليجرام:* @k_i_i8
+📞 *واتساب:* 776 383 577
+
+سنساعدك في خطوات التسجيل والانضمام، ونقدم لك كل الدعم اللازم.
 
 🔹 *للحصول على شرح مفصل يناسب وضعك الخاص، أجب على الأسئلة التي طرحتها سابقاً (هدفك، وضعك الحالي، الوقت المتاح) وسأقدم لك خطة مخصصة.*
 
@@ -287,9 +286,21 @@ async function getReply(userId, question, msgId) {
     const reply = getStartupReply();
     await sendLongMessage(userId, reply, msgId);
     
-    // إرسال الروابط في رسائل منفصلة
-🔗 *رابط التسجيل الرسمي:*
-https://old.eworldglobal.com/s/accreg/ar/145229981
+    // No separate link messages anymore; contact info is in the reply
+    
+    if (!hasSentFile(userId, 'intro')) {
+      await sendPDF(userId, 'intro', '📄 البرنامج التعريفي الشامل ل DXN', msgId);
+      markFileSent(userId, 'intro');
+    }
+    setLastReply(userId, reply);
+    return;
+  }
+
+  const pdfRequest = detectPDFRequest(question);
+  if (pdfRequest) {
+    console.log('📄 طلب ملفات:', pdfRequest.keys);
+  }
+
   let reply = await getFastReply(question, contextStr);
   reply = cleanText(reply);
   reply = reply.replace(/[#*_|~`>+=]/g, '');
@@ -386,18 +397,14 @@ function setupListener() {
       console.log(`📝 Raw text: "${text}"`);
       addToMemory(userId, 'user', text);
 
-      // ===== معالجة التحية =====
       if (isGreeting(text)) {
-        // التحقق إذا كان قد أرسلنا الترحيب الطويل لهذا المستخدم من قبل
         if (!greetingSentCache.get(userId)) {
-          // أول مرة: نرسل الترحيب الطويل
           const greetingReply = getGreetingReply();
           console.log(`✅ First greeting sent to user ${userId}`);
           addToMemory(userId, 'assistant', greetingReply);
           await sendLongMessage(userId, greetingReply, msg.id);
           greetingSentCache.set(userId, true);
         } else {
-          // مرات لاحقة: نرسل رداً مختصراً
           const simpleReply = getSimpleGreetingReply();
           console.log(`✅ Simple greeting reply to user ${userId}`);
           addToMemory(userId, 'assistant', simpleReply);
@@ -418,6 +425,3 @@ function setupListener() {
 
 export function getClient() { return client; }
 export default { initTelegram, getClient };
-// تحديث الروابط بشكل نهائي
-// تحديث الروابط بشكل نهائي
-// إصلاح الروابط باستخدام parse_mode Markdown
