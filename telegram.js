@@ -238,10 +238,12 @@ function getStartupText() {
 function getStartupReplyWithButtons() {
   return {
     text: getStartupText(),
-    buttons: [
-      [{ text: '📞 واتساب', url: 'https://wa.me/967776383577' }],
-      [{ text: '📱 تيليجرام', url: 'https://t.me/k_i_i8' }]
-    ]
+    buttons: {
+      inline_keyboard: [
+        [{ text: '📞 واتساب', url: 'https://wa.me/967776383577' }],
+        [{ text: '📱 تيليجرام', url: 'https://t.me/k_i_i8' }]
+      ]
+    }
   };
 }
 
@@ -287,13 +289,13 @@ async function getReply(userId, question, msgId) {
   if (isStartupQuery(question)) {
     console.log(`✅ Startup query detected for user ${userId}`);
     const startup = getStartupReplyWithButtons();
+    const entity = await getCachedEntity(userId);
     
     // إرسال النص مع الأزرار
-    const entity = await getCachedEntity(userId);
     await client.sendMessage(entity, {
       message: startup.text,
       parse_mode: 'Markdown',
-      reply_markup: { inline_keyboard: startup.buttons }
+      reply_markup: startup.buttons
     });
     
     // إرسال الملف التعريفي إذا لم يرسل من قبل
