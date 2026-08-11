@@ -1,5 +1,6 @@
 import { TelegramClient } from 'telegram';
 import { StringSession } from 'telegram/sessions/index.js';
+import { InlineKeyboard } from 'telegram/buttons.js';
 import input from 'input';
 import fs from 'fs-extra';
 import path from 'path';
@@ -236,15 +237,11 @@ function getStartupText() {
 }
 
 function getStartupReplyWithButtons() {
-  return {
-    text: getStartupText(),
-    buttons: {
-      inline_keyboard: [
-        [{ text: '📞 واتساب', url: 'https://wa.me/967776383577' }],
-        [{ text: '📱 تيليجرام', url: 'https://t.me/k_i_i8' }]
-      ]
-    }
-  };
+  const keyboard = new InlineKeyboard([
+    [InlineKeyboard.button.url('📞 واتساب', 'https://wa.me/967776383577')],
+    [InlineKeyboard.button.url('📱 تيليجرام', 'https://t.me/k_i_i8')]
+  ]);
+  return { text: getStartupText(), keyboard };
 }
 
 function detectPDFRequest(text) {
@@ -295,7 +292,7 @@ async function getReply(userId, question, msgId) {
     await client.sendMessage(entity, {
       message: startup.text,
       parse_mode: 'Markdown',
-      reply_markup: startup.buttons
+      reply_markup: startup.keyboard
     });
     
     // إرسال الملف التعريفي إذا لم يرسل من قبل
