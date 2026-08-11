@@ -227,19 +227,22 @@ function isStartupQuery(text) {
   return false;
 }
 
-function getStartupReply() {
+function getStartupText() {
   return `📘 *كيف تبدأ مع DXN؟*
 
-مرحباً! للانضمام إلى DXN والبدء في تحقيق دخل، يرجى التواصل معنا عبر:
+مرحباً! للانضمام إلى DXN والبدء في تحقيق دخل، يرجى التواصل معنا عبر الأزرار أدناه:
 
-📱 تيليجرام: https://t.me/k_i_i8
-📞 واتساب: https://wa.me/967776383577
+📱 اضغط على الزر المناسب للتواصل مباشرة.`;
+}
 
-سنساعدك في خطوات التسجيل والانضمام، ونقدم لك كل الدعم اللازم.
-
-🔹 *للحصول على شرح مفصل يناسب وضعك الخاص، أجب على الأسئلة التي طرحتها سابقاً (هدفك، وضعك الحالي، الوقت المتاح) وسأقدم لك خطة مخصصة.*
-
-📄 *يمكنك أيضاً تحميل الملفات المرفقة لمزيد من المعلومات.*`;
+function getStartupReplyWithButtons() {
+  return {
+    text: getStartupText(),
+    buttons: [
+      [{ text: '📞 واتساب', url: 'https://wa.me/967776383577' }],
+      [{ text: '📱 تيليجرام', url: 'https://t.me/k_i_i8' }]
+    ]
+  };
 }
 
 function detectPDFRequest(text) {
@@ -283,16 +286,22 @@ async function getReply(userId, question, msgId) {
 
   if (isStartupQuery(question)) {
     console.log(`✅ Startup query detected for user ${userId}`);
-    const reply = getStartupReply();
-    await sendLongMessage(userId, reply, msgId);
+    const startup = getStartupReplyWithButtons();
     
-    // No separate link messages anymore; contact info is in the reply
+    // إرسال النص مع الأزرار
+    const entity = await getCachedEntity(userId);
+    await client.sendMessage(entity, {
+      message: startup.text,
+      parse_mode: 'Markdown',
+      reply_markup: { inline_keyboard: startup.buttons }
+    });
     
+    // إرسال الملف التعريفي إذا لم يرسل من قبل
     if (!hasSentFile(userId, 'intro')) {
       await sendPDF(userId, 'intro', '📄 البرنامج التعريفي الشامل ل DXN', msgId);
       markFileSent(userId, 'intro');
     }
-    setLastReply(userId, reply);
+    setLastReply(userId, startup.text);
     return;
   }
 
