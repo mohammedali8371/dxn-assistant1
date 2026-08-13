@@ -337,6 +337,7 @@ export async function initAdminBot() {
       logger.info('🎛️ Admin control bot connected');
       client.addEventHandler(handleCallback, new CallbackQuery({}));
       client.addEventHandler(handleMessage, new NewMessage({}));
+      notifyAdminsOnConnect();
       return client;
     } catch (e) {
       connState = { ok: false, error: e.message, connectedAt: null };
@@ -356,6 +357,22 @@ export async function initAdminBot() {
 }
 
 export function getAdminClient() { return client; }
+
+async function notifyAdminsOnConnect() {
+  try {
+    const admins = getConfig().admins;
+    for (const id of admins) {
+      try {
+        await client.sendMessage(id, { message: '🟢 *لوحة تحكم DXN Assistant متصلة الآن!*\n\nأهلاً بك! أرسل /start لفتح اللوحة.', parse_mode: 'Markdown' });
+        console.log('✅ رسالة الترحيب أُرسلت للمطور', id);
+      } catch (e) {
+        console.error('❌ فشل إرسال الترحيب للمطور', id, ':', e.message);
+      }
+    }
+  } catch (e) {
+    console.error('❌ notifyAdminsOnConnect:', e.message);
+  }
+}
 
 export function getAdminStatus() {
   return {
