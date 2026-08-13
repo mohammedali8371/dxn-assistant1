@@ -149,11 +149,21 @@ function getHowAreYouReply() {
 }
 
 function getGreetingReply() {
-  return `أهلاً وسهلاً! كيف أقدر أخدمك اليوم؟`;
+  return `السلام عليكم ورحمة الله وبركاته. أهلاً وسهلاً بك.
+
+سعيد بتواصلك معنا، قبل ما أشرح لك فكرة المشروع أحب أفهم وضعك أكثر عشان أقدر أقدّم لك معلومات تناسبك.
+
+١) إيش هدفك الأساسي من البحث عن الفرصة هذي؟ دخل إضافي؟ مشروع أكبر؟ ولا مجرد استكشاف لمعرفة الخيارات؟
+
+٢) حالياً موظف، طالب، صاحب عمل، ولا إيش وضعك الحالي تقريباً؟
+
+٣) كم ساعة تقريباً تقدر تخصص أسبوعياً لو قررت تبدأ أي مشروع؟
+
+جاوبني على هذي الأسئلة، وبقدّم لك شرح يناسب وضعك بالضبط بدون أي تشتيت.`;
 }
 
 function getSimpleGreetingReply() {
-  return 'أهلاً بك، نورت!';
+  return 'أهلاً وسهلاً، نورت! كيف أقدر أخدمك اليوم؟';
 }
 
 function getPromptMessage() {
@@ -287,7 +297,16 @@ async function getReply(userId, question, msgId) {
     
     // إرسال رسالة البداية مرة واحدة فقط لكل مستخدم
     if (!startupSentCache.has(userId)) {
-      await sendLongMessage(userId, getStartupText(), msgId);
+      // إرسال مباشر بصيغة Markdown حتى تظهر الروابط صحيحة دون أن تفسدها cleanText
+      const entity = await getCachedEntity(userId);
+      const options = { message: getStartupText(), parse_mode: 'Markdown' };
+      if (msgId) options.replyTo = msgId;
+      try {
+        await client.sendMessage(entity, options);
+      } catch (e) {
+        console.error('❌ إرسال رسالة البداية:', e.message);
+        await sendLongMessage(userId, getStartupText(), msgId);
+      }
       startupSentCache.set(userId, true);
       
       // إرسال الملف التعريفي إذا لم يرسل من قبل
