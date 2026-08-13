@@ -5,6 +5,7 @@ import express from 'express';
 import { logger } from './logger.js';
 import { initTelegram } from './telegram.js';
 import { initCache } from './utils.js';
+import { initAdminBot } from './admin.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -14,6 +15,7 @@ async function initApp() {
     console.log('🔥 Starting DXN Assistant on Render...');
     initCache();
     await initTelegram();
+    await initAdminBot().catch(e => console.error('⚠️ بوت التحكم لم يشتغل:', e.message));
 
     app.get('/', (req, res) => res.send('DXN Assistant is running! ✅'));
     app.listen(PORT, '0.0.0.0', () => {

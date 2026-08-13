@@ -8,6 +8,7 @@ import { fileURLToPath } from 'url';
 import { logger } from './logger.js';
 import extra from './extra.js';
 import * as rag from './rag.js';
+import { getConfig, saveConfig } from './configStore.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -144,26 +145,17 @@ function isGreeting(text) {
 }
 
 function getHowAreYouReply() {
-  const replies = ['الحمدلله بخير، وش أخبارك؟', 'الحمدلله تمام، وأنت كيفك؟', 'بخير الحمدلله، تسلم أسأل عنك'];
-  return replies[Math.floor(Math.random() * replies.length)];
+  const replies = getConfig().howAreYouReplies;
+  const pool = Array.isArray(replies) && replies.length ? replies : ['الحمدلله بخير، وش أخبارك؟'];
+  return pool[Math.floor(Math.random() * pool.length)];
 }
 
 function getGreetingReply() {
-  return `السلام عليكم ورحمة الله وبركاته. أهلاً وسهلاً بك.
-
-سعيد بتواصلك معنا، قبل ما أشرح لك فكرة المشروع أحب أفهم وضعك أكثر عشان أقدر أقدّم لك معلومات تناسبك.
-
-١) إيش هدفك الأساسي من البحث عن الفرصة هذي؟ دخل إضافي؟ مشروع أكبر؟ ولا مجرد استكشاف لمعرفة الخيارات؟
-
-٢) حالياً موظف، طالب، صاحب عمل، ولا إيش وضعك الحالي تقريباً؟
-
-٣) كم ساعة تقريباً تقدر تخصص أسبوعياً لو قررت تبدأ أي مشروع؟
-
-جاوبني على هذي الأسئلة، وبقدّم لك شرح يناسب وضعك بالضبط بدون أي تشتيت.`;
+  return getConfig().greetingText;
 }
 
 function getSimpleGreetingReply() {
-  return 'أهلاً وسهلاً، نورت! كيف أقدر أخدمك اليوم؟';
+  return getConfig().simpleGreetingText;
 }
 
 function getPromptMessage() {
@@ -256,14 +248,7 @@ function isStartupQuery(text) {
 }
 
 function getStartupText() {
-  return `📘 *كيف تبدأ مع DXN؟*
-
-مرحباً! للانضمام إلى DXN والبدء في تحقيق دخل، يرجى التواصل معنا مباشرة:
-
-📱 *تيليجرام:* [@k_i_i8](https://t.me/k_i_i8)
-📞 *واتساب:* [+967 776 383 577](https://wa.me/967776383577)
-
-سنساعدك في خطوات التسجيل والانضمام، ونقدّم لك كل الدعم اللازم.`;
+  return getConfig().startupText;
 }
 
 function detectPDFRequest(text) {
@@ -288,9 +273,12 @@ function detectPDFRequest(text) {
 }
 
 async function getFastReply(question, contextStr) {
+  const cfg = getConfig();
+  const personality = (cfg.personalityPrompt || '').trim();
+  const systemPrompt = personality ? `${personality}\n\nسياق المحادثة السابقة:\n${contextStr || 'لا يوجد'}` : contextStr;
   let reply = null;
   try {
-    const results = await extra.chatWithModels(question, contextStr);
+    const results = await extra.chatWithModels(question, systemPrompt);
     for (const r of results) if (r.answer && r.answer.trim()) { reply = r.answer; break; }
   } catch(e) {}
   if (!reply) {
@@ -298,6 +286,23 @@ async function getFastReply(question, contextStr) {
   }
   if (!reply) reply = 'عذراً، لم أستطع معالجة سؤالك حالياً.';
   return reply;
+}
+
+function isDxnRelated(text) {
+  const norm = normalizeText(text);
+  const keywords = [
+    'dxn', 'دي اكس ان', 'دي اكس',
+    'شركة', 'الشركة', 'منتج', 'المنتجات', 'المنتج', 'قهوة', 'لينجزي', 'قشر', 'فطر', 'جانوديرما',
+    'فرصة', 'فرصه', 'فرص', 'دخل', 'دخل اضافي', 'عمل', 'شغل', 'مشروع', 'بدء', 'ابدء', 'ابدأ', 'ابدا',
+    'تسويق', 'مبيعات', 'كسب', 'ربح', 'أرباح', 'عمولة', 'سعر', 'اسعار', 'كتالوج', 'فوائد',
+    'عضوية', 'اشتراك', 'انضمام', 'تسجيل', 'سجل', 'خطة مالية', 'خطة تسويقية', 'مالية', 'ماليه',
+    'مرجع', 'بداية المشوار', 'انطلاق', 'لقاء', 'اجتماع', 'منزل', 'بيت', 'موظف', 'وظيفة', 'شهادة',
+    'التعريفية', 'البرنامج التعريفي', 'تعريف'
+  ];
+  for (const kw of keywords) {
+    if (norm.includes(normalizeText(kw))) return true;
+  }
+  return false;
 }
 
 async function getReply(userId, question, msgId) {
@@ -338,6 +343,16 @@ async function getReply(userId, question, msgId) {
   const pdfRequest = detectPDFRequest(question);
   if (pdfRequest) {
     console.log('📄 طلب ملفات:', pdfRequest.keys);
+  }
+
+  // وضع DXN فقط: أي سؤال غير مرتبط بـ DXN يحصل على رد تحويل
+  const cfg = getConfig();
+  if (cfg.dxnOnly && !pdfRequest && !isDxnRelated(question)) {
+    console.log(`🚫 سؤال غير مرتبط بـ DXN من ${userId}: "${question}"`);
+    const redirect = cfg.nonDxnReply || 'أنا متخصص في فرص ومنتجات DXN فقط، اسألني عن DXN وسأجيبك!';
+    setLastReply(userId, redirect);
+    await sendLongMessage(userId, redirect, msgId);
+    return;
   }
 
   let reply = await getFastReply(question, contextStr);
