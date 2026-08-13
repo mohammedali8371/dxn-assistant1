@@ -166,7 +166,6 @@ function getPromptMessage() {
 const conversationMemory = new Map();
 const lastReplyCache = new Map();
 const sentFilesCache = new Map();
-const greetingSentCache = new Map();
 const startupSentCache = new Map();
 
 function getMemory(userId) {
@@ -463,15 +462,17 @@ function setupListener() {
       }
 
       if (isGreeting(text)) {
-        if (!greetingSentCache.get(userId)) {
+        const uid = Number(userId);
+        const cfg = getConfig();
+        if (!cfg.greetedUsers.includes(uid)) {
           const greetingReply = getGreetingReply();
-          console.log(`✅ First greeting sent to user ${userId}`);
+          console.log(`✅ First greeting sent to user ${uid}`);
           addToMemory(userId, 'assistant', greetingReply);
           await sendLongMessage(userId, greetingReply, msg.id);
-          greetingSentCache.set(userId, true);
+          saveConfig({ greetedUsers: [...cfg.greetedUsers, uid] });
         } else {
           const simpleReply = getSimpleGreetingReply();
-          console.log(`✅ Simple greeting reply to user ${userId}`);
+          console.log(`✅ Simple greeting reply to user ${uid}`);
           addToMemory(userId, 'assistant', simpleReply);
           await sendLongMessage(userId, simpleReply, msg.id);
         }
