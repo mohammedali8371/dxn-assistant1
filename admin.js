@@ -329,19 +329,30 @@ export async function initAdminBot() {
     connState = { ok: false, error: 'ADMIN_BOT_TOKEN missing', connectedAt: null };
     return null;
   }
-  try {
-    client = new TelegramClient(new StringSession(''), API_ID, API_HASH, TELEGRAM_OPTIONS);
-    await client.start({ botAuthToken: ADMIN_BOT_TOKEN });
-    connState = { ok: true, error: null, connectedAt: new Date().toISOString() };
-    logger.info('🎛️ Admin control bot connected');
-    client.addEventHandler(handleCallback, new CallbackQuery({}));
-    client.addEventHandler(handleMessage, new NewMessage({}));
-    return client;
-  } catch (e) {
-    connState = { ok: false, error: e.message, connectedAt: null };
-    logger.errorWithContext('Admin bot init failed', e);
-    throw e;
-  }
+  const tryConnect = async () => {
+    try {
+      client = new TelegramClient(new StringSession(''), API_ID, API_HASH, TELEGRAM_OPTIONS);
+      await client.start({ botAuthToken: ADMIN_BOT_TOKEN });
+      connState = { ok: true, error: null, connectedAt: new Date().toISOString() };
+      logger.info('🎛️ Admin control bot connected');
+      client.addEventHandler(handleCallback, new CallbackQuery({}));
+      client.addEventHandler(handleMessage, new NewMessage({}));
+      return client;
+    } catch (e) {
+      connState = { ok: false, error: e.message, connectedAt: null };
+      const m = e.message || '';
+      const waitMatch = m.match(/wait of (\d+) seconds is required/i);
+      if (waitMatch) {
+        const waitSec = parseInt(waitMatch[1], 10) + 10;
+        logger.info(`⏳ Admin bot: انتظار ${waitSec}s قبل إعادة محاولة الاتصال`);
+        setTimeout(tryConnect, waitSec * 1000);
+        return null;
+      }
+      logger.errorWithContext('Admin bot init failed', e);
+      return null;
+    }
+  };
+  return tryConnect();
 }
 
 export function getAdminClient() { return client; }
