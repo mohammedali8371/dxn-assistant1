@@ -69,6 +69,8 @@ function formatReply(text) {
   text = text.replace(/هذه المعلومات مأخوذة من ملفات DXN/gi, '');
   text = text.replace(/من ملفات DXN/gi, '');
   text = text.replace(/^مروان:\s*/gi, '');
+  text = text.replace(/أنا (مساعد|روبوت|بوت|ذكاء اصطناعي|نموذج لغوي|مساعد ذكي)[^.\n]*/gi, '');
+  text = text.replace(/كمساعد (ذكي|رقمي|افتراضي)[^.\n]*/gi, '');
   return text.trim();
 }
 
@@ -127,29 +129,31 @@ function normalizeText(text) {
   return normalized.trim().toLowerCase();
 }
 
+function isHowAreYou(text) {
+  const normalized = normalizeText(text);
+  const phrases = ['كيفك', 'كيف حالك', 'كيف الحال', 'كيف حالك اليوم', 'كيفك اليوم', 'شلونك', 'شحالك', 'وشحالك', 'كيف انت', 'كيف أنت', 'كيف اخبارك', 'كيف أخبارك', 'اخبارك ايه', 'عامل ايه', 'عامل ايش'];
+  for (const p of phrases) if (normalized.includes(normalizeText(p))) return true;
+  return false;
+}
+
 function isGreeting(text) {
-  const greetings = ['السلام عليكم', 'سلام', 'مرحبا', 'أهلا', 'هلا', 'الو', 'هلو', 'صباح الخير', 'مساء الخير', 'يا هلا', 'هاي', 'كيفك', 'كيف حالك', 'كيف الحال', 'اخبارك', 'شو اخبارك', 'شحالك', 'وشحالك'];
+  const greetings = ['السلام عليكم', 'سلام', 'مرحبا', 'أهلا', 'هلا', 'الو', 'هلو', 'صباح الخير', 'مساء الخير', 'يا هلا', 'هاي', 'اهلين', 'هلا والله'];
   const normalized = normalizeText(text);
   for (const g of greetings) if (normalized.includes(normalizeText(g))) return true;
   return false;
 }
 
+function getHowAreYouReply() {
+  const replies = ['الحمدلله بخير، وش أخبارك؟', 'الحمدلله تمام، وأنت كيفك؟', 'بخير الحمدلله، تسلم أسأل عنك'];
+  return replies[Math.floor(Math.random() * replies.length)];
+}
+
 function getGreetingReply() {
-  return `السلام عليكم ورحمة الله وبركاته. أهلاً وسهلاً بك. سعيد بتواصلك معنا.
-
-قبل ما أشرح لك فكرة المشروع، أحب أفهم وضعك أكثر عشان أقدر أقدّم لك معلومات تناسبك.
-
-أول سؤال، إيش هدفك الأساسي من البحث عن الفرصة هذي؟ دخل إضافي؟ مشروع أكبر؟ ولا مجرد استكشاف لمعرفة الخيارات؟
-
-وسؤالي الثاني، هل أنت حالياً موظف، طالب، صاحب عمل، أو ما إيش وضعك الحالي تقريباً؟
-
-وثالث شي، كم ساعة تقريباً تقدر تخصص أسبوعياً لو قررت تبدأ أي مشروع؟
-
-إذا تجاوبني على هذي الأسئلة، بقدّم لك شرح يناسب وضعك بالضبط بدون أي تشتيت. يناسبك؟`;
+  return `أهلاً وسهلاً! كيف أقدر أخدمك اليوم؟`;
 }
 
 function getSimpleGreetingReply() {
-  return 'وعليكم السلام ورحمة الله وبركاته. كيف يمكنني مساعدتك؟';
+  return 'أهلاً بك، نورت!';
 }
 
 function getPromptMessage() {
@@ -161,6 +165,7 @@ const conversationMemory = new Map();
 const lastReplyCache = new Map();
 const sentFilesCache = new Map();
 const greetingSentCache = new Map();
+const startupSentCache = new Map();
 
 function getMemory(userId) {
   if (!conversationMemory.has(userId)) conversationMemory.set(userId, []);
@@ -230,17 +235,12 @@ function isStartupQuery(text) {
 function getStartupText() {
   return `📘 *كيف تبدأ مع DXN؟*
 
-مرحباً! للانضمام إلى DXN والبدء في تحقيق دخل، يرجى التواصل معنا عبر الأزرار أدناه:
+مرحباً! للانضمام إلى DXN والبدء في تحقيق دخل، يرجى التواصل معنا مباشرة:
 
-📱 اضغط على الزر المناسب للتواصل مباشرة.`;
-}
+📱 *تيليجرام:* [@k_i_i8](https://t.me/k_i_i8)
+📞 *واتساب:* [+967 776 383 577](https://wa.me/967776383577)
 
-function getStartupReplyWithButtons() {
-  const keyboard = [
-    [new Api.KeyboardButtonUrl({ text: '📞 واتساب', url: 'https://wa.me/967776383577' })],
-    [new Api.KeyboardButtonUrl({ text: '📱 تيليجرام', url: 'https://t.me/k_i_i8' })]
-  ];
-  return { text: getStartupText(), keyboard };
+سنساعدك في خطوات التسجيل والانضمام، ونقدّم لك كل الدعم اللازم.`;
 }
 
 function detectPDFRequest(text) {
@@ -284,22 +284,22 @@ async function getReply(userId, question, msgId) {
 
   if (isStartupQuery(question)) {
     console.log(`✅ Startup query detected for user ${userId}`);
-    const startup = getStartupReplyWithButtons();
-    const entity = await getCachedEntity(userId);
     
-    // إرسال النص مع الأزرار
-    await client.sendMessage(entity, {
-      message: startup.text,
-      parse_mode: 'Markdown',
-      buttons: startup.keyboard
-    });
-    
-    // إرسال الملف التعريفي إذا لم يرسل من قبل
-    if (!hasSentFile(userId, 'intro')) {
-      await sendPDF(userId, 'intro', '📄 البرنامج التعريفي الشامل ل DXN', msgId);
-      markFileSent(userId, 'intro');
+    // إرسال رسالة البداية مرة واحدة فقط لكل مستخدم
+    if (!startupSentCache.has(userId)) {
+      await sendLongMessage(userId, getStartupText(), msgId);
+      startupSentCache.set(userId, true);
+      
+      // إرسال الملف التعريفي إذا لم يرسل من قبل
+      if (!hasSentFile(userId, 'intro')) {
+        await sendPDF(userId, 'intro', '📄 البرنامج التعريفي الشامل ل DXN', msgId);
+        markFileSent(userId, 'intro');
+      }
+    } else {
+      // إذا سأل مرة أخرى نذكره فقط، دون تكرار الرسالة الكاملة
+      await sendLongMessage(userId, 'أرسلت لك تفاصيل التواصل قبل قليل، اكتب "أرسل الملف" لو تحتاج الملفات أو سؤال آخر. 📨', msgId);
     }
-    setLastReply(userId, startup.text);
+    setLastReply(userId, getStartupText());
     return;
   }
 
@@ -403,6 +403,14 @@ function setupListener() {
       console.log(`📩 Private chat from ${userId}`);
       console.log(`📝 Raw text: "${text}"`);
       addToMemory(userId, 'user', text);
+
+      if (isHowAreYou(text)) {
+        const howReply = getHowAreYouReply();
+        console.log(`✅ How-are-you reply to user ${userId}`);
+        addToMemory(userId, 'assistant', howReply);
+        await sendLongMessage(userId, howReply, msg.id);
+        return;
+      }
 
       if (isGreeting(text)) {
         if (!greetingSentCache.get(userId)) {
