@@ -1,6 +1,7 @@
 import { TelegramClient, Api } from 'telegram';
 import { StringSession } from 'telegram/sessions/index.js';
-import input from 'input';
+import { NewMessage } from 'telegram/events/index.js';
+import { CallbackQuery } from 'telegram/events/CallbackQuery.js';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -20,6 +21,7 @@ const TELEGRAM_OPTIONS = { connectionRetries: 2, useWSS: true, timeout: 5 };
 let client = null;
 const pendingEdit = new Map(); // userId -> field name being edited
 let lastSeen = { userId: null, text: null, at: null, isAdmin: null };
+let connState = { ok: false, error: null, connectedAt: null };
 
 // ========== أدوات ==========
 function truncate(text, max) {
@@ -199,16 +201,17 @@ const fieldLabels = {
 // ========== معالج الأزرار ==========
 async function handleCallback(event) {
   try {
-    const userId = event.userId ? parseInt(event.userId) : null;
+    if (!event || !event.query) return;
+    const userId = event.query.userId ? parseInt(event.query.userId) : null;
     if (!userId) return;
     if (!isAdmin(userId)) {
       try {
-        await client.invoke(new Api.MessagesSetBotCallbackAnswer({ queryId: event.queryId, cacheTime: 0, message: 'غير مصرح' }));
+        await event.answer({ message: 'غير مصرح', alert: false });
       } catch (e) {}
       return;
     }
-    const data = event.data ? Buffer.from(event.data).toString() : '';
-    const msgId = event.msgId || event.messageId || null;
+    const data = event.query.data ? Buffer.from(event.query.data).toString() : '';
+    const msgId = event.messageId || null;
 
     if (data.startsWith('menu:')) {
       await showMenu(userId, data.split(':')[1], msgId);
@@ -246,16 +249,10 @@ async function handleMessage(event) {
   try {
     if (!event || !event.message) return;
     const msg = event.message;
-    let userId = null, text = null;
-    if (event.userId) {
-      userId = parseInt(event.userId);
-      text = event.message || event.text;
-    } else if (msg.peerId && msg.peerId.userId) {
-      userId = msg.peerId.userId;
-      text = msg.text || msg.message;
-    }
+    const userId = msg.senderId ? parseInt(msg.senderId) : null;
+    const text = typeof msg.text === 'string' ? msg.text : (typeof msg.message === 'string' ? msg.message : null);
     if (!userId) return;
-    if (!text || typeof text !== 'string') return;
+    if (!text) return;
 
     lastSeen = { userId, text: text.slice(0, 80), at: new Date().toISOString(), isAdmin: isAdmin(userId) };
     console.log(`👀 Admin bot msg from ${userId} (${isAdmin(userId) ? 'ADMIN' : 'NOT-ADMIN'}): ${text.slice(0, 50)}`);
@@ -329,16 +326,19 @@ async function handleMessage(event) {
 export async function initAdminBot() {
   if (!ADMIN_BOT_TOKEN) {
     console.log('⚠️ ADMIN_BOT_TOKEN غير مضبوط، تخطي بوت التحكم');
+    connState = { ok: false, error: 'ADMIN_BOT_TOKEN missing', connectedAt: null };
     return null;
   }
   try {
     client = new TelegramClient(new StringSession(''), API_ID, API_HASH, TELEGRAM_OPTIONS);
     await client.start({ botAuthToken: ADMIN_BOT_TOKEN });
+    connState = { ok: true, error: null, connectedAt: new Date().toISOString() };
     logger.info('🎛️ Admin control bot connected');
-    client.addEventHandler(handleCallback, new Api.UpdateBotCallbackQuery());
-    client.addEventHandler(handleMessage);
+    client.addEventHandler(handleCallback, new CallbackQuery({}));
+    client.addEventHandler(handleMessage, new NewMessage({}));
     return client;
   } catch (e) {
+    connState = { ok: false, error: e.message, connectedAt: null };
     logger.errorWithContext('Admin bot init failed', e);
     throw e;
   }
@@ -348,8 +348,8 @@ export function getAdminClient() { return client; }
 
 export function getAdminStatus() {
   return {
-    connected: !!client,
-    connectedSince: client ? 'connected' : 'not connected',
+    connState,
+    connected: connState.ok,
     admins: getConfig().admins,
     dxnOnly: getConfig().dxnOnly,
     lastSeen
