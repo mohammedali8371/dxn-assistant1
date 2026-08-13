@@ -19,6 +19,7 @@ const TELEGRAM_OPTIONS = { connectionRetries: 2, useWSS: true, timeout: 5 };
 
 let client = null;
 const pendingEdit = new Map(); // userId -> field name being edited
+let lastSeen = { userId: null, text: null, at: null, isAdmin: null };
 
 // ========== أدوات ==========
 function truncate(text, max) {
@@ -256,8 +257,11 @@ async function handleMessage(event) {
     if (!userId) return;
     if (!text || typeof text !== 'string') return;
 
+    lastSeen = { userId, text: text.slice(0, 80), at: new Date().toISOString(), isAdmin: isAdmin(userId) };
+    console.log(`👀 Admin bot msg from ${userId} (${isAdmin(userId) ? 'ADMIN' : 'NOT-ADMIN'}): ${text.slice(0, 50)}`);
+
     if (!isAdmin(userId)) {
-      await client.sendMessage(userId, { message: '⛔ أنت غير مصرح لك باستخدام لوحة التحكم.' });
+      await client.sendMessage(userId, { message: `⛔ أنت غير مصرح لك باستخدام لوحة التحكم.\nمعرّفك الحالي: \`${userId}\``, parse_mode: 'Markdown' });
       return;
     }
 
@@ -341,4 +345,15 @@ export async function initAdminBot() {
 }
 
 export function getAdminClient() { return client; }
-export default { initAdminBot, getAdminClient };
+
+export function getAdminStatus() {
+  return {
+    connected: !!client,
+    connectedSince: client ? 'connected' : 'not connected',
+    admins: getConfig().admins,
+    dxnOnly: getConfig().dxnOnly,
+    lastSeen
+  };
+}
+
+export default { initAdminBot, getAdminClient, getAdminStatus };

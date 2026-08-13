@@ -5,7 +5,7 @@ import express from 'express';
 import { logger } from './logger.js';
 import { initTelegram } from './telegram.js';
 import { initCache } from './utils.js';
-import { initAdminBot } from './admin.js';
+import { initAdminBot, getAdminStatus } from './admin.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -18,6 +18,7 @@ async function initApp() {
     await initAdminBot().catch(e => console.error('⚠️ بوت التحكم لم يشتغل:', e.message));
 
     app.get('/', (req, res) => res.send('DXN Assistant is running! ✅'));
+    app.get('/admin', (req, res) => res.json(getAdminStatus()));
     app.listen(PORT, '0.0.0.0', () => {
       console.log(`🌐 Server running on port ${PORT}`);
     });
