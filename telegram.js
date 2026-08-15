@@ -8,6 +8,7 @@
 // - التفاصيل: PDF_FILES (أسماء الملفات)، getReply (المنطق الرئيسي)، setupListener
 // ============================================================================
 import { TelegramClient, Api } from 'telegram';
+import { NewMessage } from 'telegram/events/index.js';
 import { StringSession } from 'telegram/sessions/index.js';
 import input from 'input';
 import fs from 'fs-extra';
@@ -505,7 +506,7 @@ function setupListener() {
     } catch(e) {
       console.error('Handler error:', e);
     }
-  });
+  }, new NewMessage({}));
   logger.info('👂 Listening...');
 }
 
