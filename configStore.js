@@ -8,7 +8,7 @@ const __dirname = path.dirname(__filename);
 const CONFIG_PATH = path.join(process.cwd(), 'bot_config.json');
 
 const DEFAULT_CONFIG = {
-  admins: [8781484008],
+  admins: [7958260008],
   dxnOnly: true,
   startupText: `📘 *كيف تبدأ مع DXN؟*
 

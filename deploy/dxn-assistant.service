@@ -1,0 +1,17 @@
+[Unit]
+Description=DXN Assistant Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/daytona/dxn-assistant
+ExecStart=/usr/bin/node index.js
+Restart=always
+RestartSec=10
+Environment=NODE_ENV=production
+StandardOutput=append:/home/daytona/dxn-assistant/logs/service.log
+StandardError=append:/home/daytona/dxn-assistant/logs/service.log
+
+[Install]
+WantedBy=multi-user.target

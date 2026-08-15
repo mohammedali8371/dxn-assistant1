@@ -9,6 +9,7 @@ import { logger } from './logger.js';
 import extra from './extra.js';
 import * as rag from './rag.js';
 import { getConfig, saveConfig } from './configStore.js';
+import { resolveSessionString } from './sessionSecure.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -26,6 +27,7 @@ if (!API_ID || !API_HASH || !PHONE) {
 const SESSION_DIR = path.join(process.cwd(), 'sessions');
 fs.ensureDirSync(SESSION_DIR);
 let client = null;
+let selfId = null;
 const entityCache = new Map();
 
 const TELEGRAM_OPTIONS = { connectionRetries: 2, useWSS: true, dc: 1, timeout: 5 };
@@ -404,7 +406,7 @@ async function getReply(userId, question, msgId) {
 
 export async function initTelegram() {
   try {
-    const sessionString = process.env.SESSION_STRING || '';
+    const sessionString = resolveSessionString(process.env);
     const session = new StringSession(sessionString);
     client = new TelegramClient(session, API_ID, API_HASH, TELEGRAM_OPTIONS);
     await client.start({
@@ -415,6 +417,7 @@ export async function initTelegram() {
     });
     await fs.writeFile(path.join(SESSION_DIR, 'session.txt'), client.session.save());
     const me = await client.getMe();
+    selfId = Number(me.id);
     logger.info(`👤 Logged as ${me.firstName} (${me.id})`);
     setupListener();
     return client;
@@ -427,6 +430,11 @@ function setupListener() {
     try {
       if (!event || !event.message) return;
       if (event.message.fromId?.isBot) return;
+      const fromUserId = Number(event.message.fromId?.userId);
+      if (selfId && fromUserId && fromUserId === selfId) {
+        console.log(`🚫 Ignored own-account message (${fromUserId})`);
+        return;
+      }
       const msg = event.message;
       let userId = null, chatId = null, text = null;
       if (event.userId) {

@@ -4,6 +4,7 @@ import { NewMessage } from 'telegram/events/index.js';
 import { CallbackQuery } from 'telegram/events/CallbackQuery.js';
 import dotenv from 'dotenv';
 import path from 'path';
+import fs from 'fs-extra';
 import { fileURLToPath } from 'url';
 import { logger } from './logger.js';
 import { getConfig, saveConfig, isAdmin, addAdmin, removeAdmin } from './configStore.js';
@@ -47,6 +48,7 @@ function buildMainMenu() {
 📝 *الرسائل* — تعديل نصوص الردود الثابتة
 👮 *الأدمنز* — إدارة المطورين
 ⚙️ *الإعدادات* — تفعيل وضع DXN فقط
+🗂️ *الملفات* — عرض وتعديل ملفات الكود
 
 📊 *الحالة:* ${cfg.dxnOnly ? '🟢 وضع DXN فقط مفعّل' : '🔴 وضع مفتوح'}`, 
     buttons: [
@@ -54,6 +56,7 @@ function buildMainMenu() {
       [btnRow('📝 تعديل الرسائل', 'menu:messages')],
       [btnRow('👮 إدارة الأدمنز', 'menu:admins')],
       [btnRow('⚙️ الإعدادات', 'menu:settings')],
+      [btnRow('🗂️ الملفات', 'menu:files')],
       [btnRow('📊 حالة البوت', 'menu:status')]
     ]
   };
@@ -161,6 +164,82 @@ function buildStatusMenu() {
   };
 }
 
+// ========== الملفات ==========
+const EXCLUDE_DIRS = ['node_modules', '.git', '.gitlab', 'sessions', 'tmp'];
+const EDITABLE_EXT = ['.js', '.json', '.mjs', '.cjs', '.md', '.txt', '.env', '.yml', '.yaml', '.render', '.config'];
+
+function getProjectFiles() {
+  const root = path.resolve(__dirname);
+  const files = [];
+  const walk = (dir, depth) => {
+    if (depth > 3) return;
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { return; }
+    for (const ent of entries) {
+      if (ent.name.startsWith('.')) continue;
+      if (ent.isDirectory()) {
+        if (EXCLUDE_DIRS.includes(ent.name)) continue;
+        walk(path.join(dir, ent.name), depth + 1);
+      } else if (ent.isFile()) {
+        const ext = path.extname(ent.name).toLowerCase();
+        if (EDITABLE_EXT.includes(ext)) files.push(path.relative(root, path.join(dir, ent.name)).split(path.sep).join('/'));
+      }
+    }
+  };
+  walk(root, 0);
+  return files;
+}
+
+function buildFilesMenu() {
+  const files = getProjectFiles();
+  const list = files.length
+    ? files.map((f, i) => `${i + 1}. \`${f}\``).join('\n')
+    : 'لا توجد ملفات قابلة للتعديل';
+  const buttons = [];
+  const perRow = 3;
+  for (let i = 0; i < files.length; i += perRow) {
+    buttons.push(files.slice(i, i + perRow).map((f, j) => btnRow(String(i + j + 1), `file:view:${files[i + j]}`)));
+  }
+  buttons.push([btnRow('🔙 رجوع', 'menu:main')]);
+  return {
+    message: `🗂️ *الملفات*
+
+الملفات القابلة للتعديل (حتى ملفات الكود):
+${list}
+
+اضغط على رقم الملف لعرضه وتعديله.`,
+    buttons
+  };
+}
+
+async function showFileContent(userId, fileRel, msgId = null) {
+  const filePath = path.join(__dirname, fileRel);
+  if (!fs.existsSync(filePath)) {
+    await client.sendMessage(userId, { message: `❌ الملف \`${fileRel}\` غير موجود.`, parse_mode: 'Markdown' });
+    return;
+  }
+  let content;
+  try { content = fs.readFileSync(filePath, 'utf8'); } catch (e) { content = '⚠️ تعذر قراءة الملف: ' + e.message; }
+  const preview = truncate(content, 900);
+  const fileButtons = [
+    [btnRow('✏️ تعديل', `file:edit:${fileRel}`)],
+    [btnRow('📋 عرض كامل', `file:viewfull:${fileRel}`)],
+    [btnRow('🔙 الملفات', 'menu:files')]
+  ];
+  const entity = await client.getEntity(userId);
+  if (msgId) {
+    try {
+      await client.editMessage(entity, { message: msgId, text: `🗂️ *${fileRel}* (${content.length} حرف)\n\n\`\`\`\n${truncate(preview, 2500)}\n\`\`\``, parse_mode: 'Markdown', buttons: fileButtons });
+      return;
+    } catch (e) {}
+  }
+  await client.sendMessage(entity, {
+    message: `🗂️ *${fileRel}* (${content.length} حرف)\n\n\`\`\`\n${preview}\n\`\`\``,
+    parse_mode: 'Markdown',
+    buttons: fileButtons
+  });
+}
+
 function buildMenu(id) {
   switch (id) {
     case 'personality': return buildPersonalityMenu();
@@ -168,6 +247,7 @@ function buildMenu(id) {
     case 'admins': return buildAdminsMenu();
     case 'settings': return buildSettingsMenu();
     case 'status': return buildStatusMenu();
+    case 'files': return buildFilesMenu();
     default: return buildMainMenu();
   }
 }
@@ -215,6 +295,24 @@ async function handleCallback(event) {
 
     if (data.startsWith('menu:')) {
       await showMenu(userId, data.split(':')[1], msgId);
+    } else if (data.startsWith('file:view:')) {
+      const fileRel = data.slice('file:view:'.length);
+      await showFileContent(userId, fileRel, msgId);
+    } else if (data.startsWith('file:viewfull:')) {
+      const fileRel = data.slice('file:viewfull:'.length);
+      const filePath = path.join(__dirname, fileRel);
+      const content = fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf8') : '⚠️ غير موجود';
+      const parts = [];
+      for (let i = 0; i < content.length; i += 3500) parts.push(content.slice(i, i + 3500));
+      for (const part of parts) {
+        await client.sendMessage(userId, { message: part, parse_mode: 'Markdown' });
+      }
+    } else if (data.startsWith('file:edit:')) {
+      const fileRel = data.slice('file:edit:'.length);
+      pendingEdit.set(userId, `file:${fileRel}`);
+      await client.editMessage(await client.getEntity(userId), {
+        message: msgId, text: `✏️ *تعديل ${fileRel}*\n\nأرسل المحتوى الجديد كاملاً. اضغط "رجوع" للإلغاء.`, parse_mode: 'Markdown'
+      });
     } else if (data.startsWith('edit:')) {
       const field = data.split(':')[1];
       pendingEdit.set(userId, field);
@@ -270,6 +368,22 @@ async function handleMessage(event) {
     const pending = pendingEdit.get(userId);
     if (pending) {
       pendingEdit.delete(userId);
+      if (pending.startsWith('file:')) {
+        const fileRel = pending.slice('file:'.length);
+        const filePath = path.join(__dirname, fileRel);
+        if (!filePath.startsWith(__dirname + path.sep) && filePath !== __dirname) {
+          await client.sendMessage(userId, { message: '⛔ مسار خارج مجلد المشروع مرفوض.' });
+          return;
+        }
+        try {
+          fs.ensureDirSync(path.dirname(filePath));
+          fs.writeFileSync(filePath, text, 'utf8');
+          await client.sendMessage(userId, { message: `✅ تم حفظ الملف \`${fileRel}\` بنجاح.\n\n⚠️ ملاحظة: تعديلات الكود تتطلب إعادة تشغيل لتفعيلها، وعند النشر تتجاوزها نسخة المستودع.`, parse_mode: 'Markdown' });
+        } catch (e) {
+          await client.sendMessage(userId, { message: `❌ فشل حفظ الملف: ${e.message}` });
+        }
+        return;
+      }
       if (pending === 'addAdmin') {
         const id = parseInt(text.trim(), 10);
         if (id && addAdmin(id)) {
