@@ -1,3 +1,12 @@
+// ============================================================================
+// telegram.js — البوت الرئيسي (الحساب الرسمي)
+// ----------------------------------------------------------------------------
+// - يسجل دخوله بالحساب الرسمي عبر جلسة مشفرة (SESSION_ENC + SESSION_KEY)
+// - يستقبل رسائل خاصة ويرد عليها (ترحيب، "كيف حالك"، أسئلة DXN، طلبات PDF)
+// - يحلل السؤال: بدء/تسجيل؟، طلب ملفات PDF؟، سؤال مرتبط بـ DXN؟ ثم يرد
+// - يمنع الرد على الرسائل الصادرة منه فقط (الحلقات)، لكن يرد على أي رسالة واردة
+// - التفاصيل: PDF_FILES (أسماء الملفات)، getReply (المنطق الرئيسي)، setupListener
+// ============================================================================
 import { TelegramClient, Api } from 'telegram';
 import { StringSession } from 'telegram/sessions/index.js';
 import input from 'input';
@@ -430,34 +439,34 @@ function setupListener() {
     try {
       if (!event || !event.message) return;
       if (event.message.fromId?.isBot) return;
-      const fromUserId = Number(event.message.fromId?.userId);
-      if (selfId && fromUserId && fromUserId === selfId) {
-        console.log(`🚫 Ignored own-account message (${fromUserId})`);
+      const msg = event.message;
+      const fromUserId = Number(msg.fromId?.userId);
+      const isOutgoing = Boolean(msg.out);
+      // تجاهل رسائل البوت الصادرة فقط (out) — لمنع الحلقات.
+      // أما الرسائل الواردة (incoming) فتتم معالجتها مهما كان المرسل.
+      if (selfId && fromUserId && fromUserId === selfId && isOutgoing) {
+        console.log(`🚫 Ignored own outgoing message (${fromUserId})`);
         return;
       }
-      const msg = event.message;
-      let userId = null, chatId = null, text = null;
+      const text = (typeof msg.text === 'string' && msg.text) ? msg.text : (typeof msg.message === 'string' ? msg.message : null);
+      let userId = null, chatId = null;
       if (event.userId) {
         userId = parseInt(event.userId);
         chatId = userId;
-        text = event.message || event.text;
-      } else if (msg.chatId) {
-        chatId = msg.chatId;
-        userId = msg.fromId?.userId || chatId;
-        text = msg.text || msg.message;
-      } else if (msg.peerId) {
-        userId = msg.peerId.userId || msg.peerId.chatId;
+      } else if (msg.peerId && msg.peerId.userId) {
+        userId = Number(msg.peerId.userId);
         chatId = userId;
-        text = msg.text || msg.message;
-      } else if (msg.fromId) {
-        userId = msg.fromId.userId;
-        chatId = userId;
-        text = msg.text || msg.message;
+      } else if (msg.peerId && msg.peerId.chatId) {
+        chatId = Number(msg.peerId.chatId);
+        userId = fromUserId || chatId;
+      } else if (fromUserId) {
+        userId = fromUserId;
+        chatId = fromUserId;
       }
       if (!userId || !chatId) return;
       if (chatId < 0) return;
       if (!text) text = 'وسائط';
-      console.log(`📩 Private chat from ${userId}`);
+      console.log(`📩 Private chat from ${userId}${isOutgoing ? ' (out)' : ''}`);
       console.log(`📝 Raw text: "${text}"`);
       addToMemory(userId, 'user', text);
 
@@ -498,4 +507,14 @@ function setupListener() {
 }
 
 export function getClient() { return client; }
+
+export function getMainStatus() {
+  return {
+    connected: !!(client && client.connected),
+    selfId,
+    sessionSaved: fs.existsSync(path.join(SESSION_DIR, 'session.txt')),
+    dcId: client ? (client.session ? client.session.dcId : null) : null,
+    hasListener: !!(client && client._eventHandlers && client._eventHandlers.length)
+  };
+}
 export default { initTelegram, getClient };

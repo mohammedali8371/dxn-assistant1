@@ -1,3 +1,11 @@
+// ============================================================================
+// config.js — إعدادات التطبيق العامة (App Config)
+// ----------------------------------------------------------------------------
+// - يقرأ متغيرات البيئة (.env) ويوفرها بشكل منظم: apiId, apiHash, phone,
+//   mongoUri, assistantName, temperature, topK, chunkSize, dashboardPassword...
+// - validateEnv: يتحقق من وجود المتغيرات الإلزامية عند الإقلاع
+// - generateId/sleep/retry: أدوات عامة مستخدمة في باقي الملفات
+// ============================================================================
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';

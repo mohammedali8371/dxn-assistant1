@@ -1,3 +1,14 @@
+// ============================================================================
+// admin.js — بوت التحكم الخاص بالمطور (Admin Control Bot)
+// ----------------------------------------------------------------------------
+// - بوت منفصل (ADMIN_BOT_TOKEN) يعمل كجهاز تحكم، يرد فقط على الأدمنز
+// - القوائم الرئيسية: الشخصية، الرسائل، الأدمنز، الإعدادات، الملفات، الحالة
+// - الأزرار ملوّنة بالكامل (أزرق/أخضر/أحمر) عبر Bot API style
+//   (blue=primary، green=success، red=danger)
+// - إرسال الأزرار يتم عبر HTTP Bot API (botApiSend) لأن GramJS لا يدعم الألوان
+// - عرض وتعديل الملفات (getProjectFiles, showFileContent) — يتيح تحرير الكود
+// - تعديل الإعدادات يُحفظ في bot_config.json عبر configStore.js
+// ============================================================================
 import { TelegramClient, Api } from 'telegram';
 import { StringSession } from 'telegram/sessions/index.js';
 import { NewMessage } from 'telegram/events/index.js';
@@ -30,8 +41,44 @@ function truncate(text, max) {
   return text.length > max ? text.slice(0, max) + '…' : text;
 }
 
-function btnRow(text, data) {
-  return new Api.KeyboardButtonCallback({ text, data: Buffer.from(data) });
+// ألوان الأزرار المدعومة من Telegram (Bot API 9.4+):
+//   'blue'  -> primary (أزرق غامق) — للإجراءات الرئيسية/التنقل
+//   'green' -> success (أخضر)      — للإجراءات الإيجابية (تأكيد، تفعيل، إضافة)
+//   'red'   -> danger (أحمر)       — للإجراءات الخطرة/التدميرية (حذف، إلغاء، رجوع)
+//   undefined -> رمادي (محايد)
+// ملاحظة: الألوان تعمل فقط عند إرسال الأزرار عبر HTTP Bot API
+//         (دالة botApiSend أدناه)، لأن GramJS المثبت لا يرسل حقول style بعد.
+function btnRow(text, data, style) {
+  return { text, data: Buffer.from(data), style: style || undefined };
+}
+
+// تحويل أزرارنا البسيطة إلى أزرار GramJS (للمسار الاحتياطي عندما تفشل HTTP)
+function toGramJSButtons(buttons) {
+  return buttons.map(row => row.map(b => new Api.KeyboardButtonCallback({ text: b.text, data: b.data })));
+}
+
+// إرسال/تعديل رسالة مع أزرار ملوّنة عبر HTTP Bot API.
+// هذا بديل عن client.sendMessage/editMessage عندما نريد أزراراً ملوّنة بالكامل.
+async function botApiSend(userId, text, buttons, msgId = null) {
+  const inline_keyboard = buttons.map(row =>
+    row.map(b => {
+      const obj = { text: b.text };
+      if (b.data) obj.callback_data = Buffer.from(b.data).toString('utf8');
+      if (b.style) obj.style = b.style;
+      return obj;
+    })
+  );
+  const params = { chat_id: userId, text, parse_mode: 'Markdown', reply_markup: { inline_keyboard } };
+  const method = msgId ? 'editMessageText' : 'sendMessage';
+  if (msgId) params.message_id = msgId;
+  const res = await fetch(`https://api.telegram.org/bot${ADMIN_BOT_TOKEN}/${method}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params)
+  });
+  const data = await res.json();
+  if (!data.ok) throw new Error(data.description || 'Bot API error');
+  return data.result?.message_id || msgId;
 }
 
 // ========== بناء القوائم ==========
@@ -52,12 +99,12 @@ function buildMainMenu() {
 
 📊 *الحالة:* ${cfg.dxnOnly ? '🟢 وضع DXN فقط مفعّل' : '🔴 وضع مفتوح'}`, 
     buttons: [
-      [btnRow('🎨 الشخصية والردود', 'menu:personality')],
-      [btnRow('📝 تعديل الرسائل', 'menu:messages')],
-      [btnRow('👮 إدارة الأدمنز', 'menu:admins')],
-      [btnRow('⚙️ الإعدادات', 'menu:settings')],
-      [btnRow('🗂️ الملفات', 'menu:files')],
-      [btnRow('📊 حالة البوت', 'menu:status')]
+      [btnRow('🎨 الشخصية والردود', 'menu:personality', 'blue')],
+      [btnRow('📝 تعديل الرسائل', 'menu:messages', 'blue')],
+      [btnRow('👮 إدارة الأدمنز', 'menu:admins', 'blue')],
+      [btnRow('⚙️ الإعدادات', 'menu:settings', 'blue')],
+      [btnRow('🗂️ الملفات', 'menu:files', 'blue')],
+      [btnRow('📊 حالة البوت', 'menu:status', 'green')]
     ]
   };
 }
@@ -72,9 +119,9 @@ ${truncate(cfg.personalityPrompt, 400)}
 
 اختر ما تريد تعديله:`,
     buttons: [
-      [btnRow('🤖 تعديل الشخصية', 'edit:personality')],
-      [btnRow('👋 الرد على "كيف حالك"', 'edit:howAreYou')],
-      [btnRow('🔙 رجوع', 'menu:main')]
+      [btnRow('🤖 تعديل الشخصية', 'edit:personality', 'blue')],
+      [btnRow('👋 الرد على "كيف حالك"', 'edit:howAreYou', 'green')],
+      [btnRow('🔙 رجوع', 'menu:main', 'red')]
     ]
   };
 }
@@ -98,11 +145,11 @@ ${truncate(cfg.nonDxnReply, 80)}
 
 اختر الرسالة لتعديلها:`,
     buttons: [
-      [btnRow('📘 رسالة البداية', 'edit:startupText')],
-      [btnRow('👋 رسالة الترحيب الأولى', 'edit:greetingText')],
-      [btnRow('😊 الترحيب المختصر', 'edit:simpleGreetingText')],
-      [btnRow('🚫 رد غير المرتبط بـ DXN', 'edit:nonDxnReply')],
-      [btnRow('🔙 رجوع', 'menu:main')]
+      [btnRow('📘 رسالة البداية', 'edit:startupText', 'blue')],
+      [btnRow('👋 رسالة الترحيب الأولى', 'edit:greetingText', 'blue')],
+      [btnRow('😊 الترحيب المختصر', 'edit:simpleGreetingText', 'blue')],
+      [btnRow('🚫 رد غير المرتبط بـ DXN', 'edit:nonDxnReply', 'red')],
+      [btnRow('🔙 رجوع', 'menu:main', 'red')]
     ]
   };
 }
@@ -121,9 +168,9 @@ ${adminList}
 لإضافة أدمن جديد: اضغط الزر وأرسل رقم ID للمطور لرفعه.
 لإزالة أدمن: اضغط إزالة وأرسل رقم ID.`,
     buttons: [
-      [btnRow('➕ إضافة أدمن', 'addadmin')],
-      [btnRow('➖ إزالة أدمن', 'deladmin')],
-      [btnRow('🔙 رجوع', 'menu:main')]
+      [btnRow('➕ إضافة أدمن', 'addadmin', 'green')],
+      [btnRow('➖ إزالة أدمن', 'deladmin', 'red')],
+      [btnRow('🔙 رجوع', 'menu:main', 'red')]
     ]
   };
 }
@@ -138,8 +185,8 @@ function buildSettingsMenu() {
 عند تفعيله، أي سؤال غير مرتبط بـ DXN يحصل على رد التحويل التالي:
 "${truncate(cfg.nonDxnReply, 80)}"`,
     buttons: [
-      [btnRow(cfg.dxnOnly ? '🔴 تعطيل وضع DXN فقط' : '🟢 تفعيل وضع DXN فقط', 'toggle:dxnOnly')],
-      [btnRow('🔙 رجوع', 'menu:main')]
+      [btnRow(cfg.dxnOnly ? '🔴 تعطيل وضع DXN فقط' : '🟢 تفعيل وضع DXN فقط', 'toggle:dxnOnly', cfg.dxnOnly ? 'red' : 'green')],
+      [btnRow('🔙 رجوع', 'menu:main', 'red')]
     ]
   };
 }
@@ -158,8 +205,8 @@ function buildStatusMenu() {
 *الروابط:*
 📱 [تيليجرام](https://t.me/k_i_i8) • 📞 [واتساب](https://wa.me/967776383577)`,
     buttons: [
-      [btnRow('🔄 تحديث الحالة', 'menu:status')],
-      [btnRow('🔙 رجوع', 'menu:main')]
+      [btnRow('🔄 تحديث الحالة', 'menu:status', 'green')],
+      [btnRow('🔙 رجوع', 'menu:main', 'red')]
     ]
   };
 }
@@ -198,9 +245,9 @@ function buildFilesMenu() {
   const buttons = [];
   const perRow = 3;
   for (let i = 0; i < files.length; i += perRow) {
-    buttons.push(files.slice(i, i + perRow).map((f, j) => btnRow(String(i + j + 1), `file:view:${files[i + j]}`)));
+    buttons.push(files.slice(i, i + perRow).map((f, j) => btnRow(String(i + j + 1), `file:view:${files[i + j]}`, 'blue')));
   }
-  buttons.push([btnRow('🔙 رجوع', 'menu:main')]);
+  buttons.push([btnRow('🔙 رجوع', 'menu:main', 'red')]);
   return {
     message: `🗂️ *الملفات*
 
@@ -222,22 +269,24 @@ async function showFileContent(userId, fileRel, msgId = null) {
   try { content = fs.readFileSync(filePath, 'utf8'); } catch (e) { content = '⚠️ تعذر قراءة الملف: ' + e.message; }
   const preview = truncate(content, 900);
   const fileButtons = [
-    [btnRow('✏️ تعديل', `file:edit:${fileRel}`)],
-    [btnRow('📋 عرض كامل', `file:viewfull:${fileRel}`)],
-    [btnRow('🔙 الملفات', 'menu:files')]
+    [btnRow('✏️ تعديل', `file:edit:${fileRel}`, 'green')],
+    [btnRow('📋 عرض كامل', `file:viewfull:${fileRel}`, 'blue')],
+    [btnRow('🔙 الملفات', 'menu:files', 'red')]
   ];
-  const entity = await client.getEntity(userId);
-  if (msgId) {
-    try {
-      await client.editMessage(entity, { message: msgId, text: `🗂️ *${fileRel}* (${content.length} حرف)\n\n\`\`\`\n${truncate(preview, 2500)}\n\`\`\``, parse_mode: 'Markdown', buttons: fileButtons });
-      return;
-    } catch (e) {}
+  const text = `🗂️ *${fileRel}* (${content.length} حرف)\n\n\`\`\`\n${truncate(preview, 2500)}\n\`\`\``;
+  try {
+    await botApiSend(userId, text, fileButtons, msgId);
+  } catch (e) {
+    const entity = await client.getEntity(userId);
+    const gButtons = toGramJSButtons(fileButtons);
+    if (msgId) {
+      try {
+        await client.editMessage(entity, { message: msgId, text, parse_mode: 'Markdown', buttons: gButtons });
+        return;
+      } catch (e2) {}
+    }
+    await client.sendMessage(entity, { message: text, parse_mode: 'Markdown', buttons: gButtons });
   }
-  await client.sendMessage(entity, {
-    message: `🗂️ *${fileRel}* (${content.length} حرف)\n\n\`\`\`\n${preview}\n\`\`\``,
-    parse_mode: 'Markdown',
-    buttons: fileButtons
-  });
 }
 
 function buildMenu(id) {
@@ -254,19 +303,25 @@ function buildMenu(id) {
 
 async function showMenu(userId, menuId, msgId = null) {
   const menu = buildMenu(menuId);
-  const entity = await client.getEntity(userId);
-  if (msgId) {
-    try {
-      await client.editMessage(entity, { message: msgId, text: menu.message, parse_mode: 'Markdown', buttons: menu.buttons });
-      return msgId;
-    } catch (e) {}
+  try {
+    return await botApiSend(userId, menu.message, menu.buttons, msgId);
+  } catch (e) {
+    // الرجوع إلى GramJS إذا فشل HTTP (مثلاً بلوك api.telegram.org)
+    const entity = await client.getEntity(userId);
+    const gButtons = toGramJSButtons(menu.buttons);
+    if (msgId) {
+      try {
+        await client.editMessage(entity, { message: msgId, text: menu.message, parse_mode: 'Markdown', buttons: gButtons });
+        return msgId;
+      } catch (e2) {}
+    }
+    const sent = await client.sendMessage(entity, {
+      message: menu.message,
+      parse_mode: 'Markdown',
+      buttons: gButtons
+    });
+    return sent.id;
   }
-  const sent = await client.sendMessage(entity, {
-    message: menu.message,
-    parse_mode: 'Markdown',
-    buttons: menu.buttons
-  });
-  return sent.id;
 }
 
 const fieldLabels = {
