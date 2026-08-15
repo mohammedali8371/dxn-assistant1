@@ -38,8 +38,10 @@ fs.ensureDirSync(SESSION_DIR);
 let client = null;
 let selfId = null;
 const entityCache = new Map();
+let lastMainMessage = null;
 
-const TELEGRAM_OPTIONS = { connectionRetries: 2, useWSS: true, dc: 1, timeout: 5 };
+// ملاحظة: لا نضبط dcId يدوياً؛ الجلسة تحدد DC الصحيح (dcId 4) من internal address.
+const TELEGRAM_OPTIONS = { connectionRetries: 2, useWSS: true, timeout: 10, autoReconnect: true };
 
 const PDF_FILES = {
   products: 'كتالوج المنتجات مع الفوائد.pdf',
@@ -466,6 +468,7 @@ function setupListener() {
       if (!userId || !chatId) return;
       if (chatId < 0) return;
       if (!text) text = 'وسائط';
+      lastMainMessage = { from: userId, out: isOutgoing, text: String(text).slice(0, 200), at: new Date().toISOString() };
       console.log(`📩 Private chat from ${userId}${isOutgoing ? ' (out)' : ''}`);
       console.log(`📝 Raw text: "${text}"`);
       addToMemory(userId, 'user', text);
@@ -514,7 +517,8 @@ export function getMainStatus() {
     selfId,
     sessionSaved: fs.existsSync(path.join(SESSION_DIR, 'session.txt')),
     dcId: client ? (client.session ? client.session.dcId : null) : null,
-    hasListener: !!(client && client._eventHandlers && client._eventHandlers.length)
+    hasListener: !!(client && Array.isArray(client._eventBuilders) && client._eventBuilders.length),
+    lastMessage: lastMainMessage
   };
 }
 export default { initTelegram, getClient };
