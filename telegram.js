@@ -285,10 +285,23 @@ function detectPDFRequest(text) {
   return null;
 }
 
-async function getFastReply(question, contextStr) {
+// حقائق أساسية عن DXN تُقدم للذكاء الاصطناعي كسياق دائم لضمان إجابات دقيقة
+const DXN_FACTS = `حقائق أساسية عن شركة DXN:
+- DXN شركة عالمية متخصصة في المكملات الغذائية والمنتجات الصحية القائمة على الفطر الطبي (جانوديرما/ريشي).
+- تأسست عام 1993 في ماليزيا، ولها فروع وحضور في أكثر من 180 دولة حول العالم.
+- تعمل بنظام التسويق الشبكي (العضوية/الاشتراك) وتمنح الأعضاء خصم شراء ونقاط (PV) وعمولات.
+- من أشهر منتجاتها: قهوة لينجزي (Lingzhi Coffee)، قشر القهوة، فطر الريشي، سبيرولينا، منتجات العناية بالبشرة (Ganozhi).
+- النظام: سجل كعضو، اشتري بسعر العضو، ادعُ آخرين، اربح عمولات وبنِ شبكتك.
+- لليمن: التسجيل والاشتراك يتم عبر الشبكة والشركاء المعتمدين، والمنتجات تُوصل للمشتركين في أي محافظة.`;
+
+async function getFastReply(question, contextStr, relateToDxn = false) {
   const cfg = getConfig();
   const personality = (cfg.personalityPrompt || '').trim();
-  const systemPrompt = personality ? `${personality}\n\nسياق المحادثة السابقة:\n${contextStr || 'لا يوجد'}` : contextStr;
+  const relateInstruction = relateToDxn
+    ? `\n\n⚠️ المستخدم طرح سؤالاً عاماً غير مباشر عن DXN. أجب عليه بإيجاز ثم اربطه بشركة DXN بشكل طبيعي (مثال: اذكر كيف يرتبط الموضوع بفرص العمل، المنتجات الصحية، أو أسلوب الحياة الذي تقدمه DXN). لا ترفض السؤال، واجعل الرد مفيداً وودوداً.`
+    : '';
+  const baseContext = `${DXN_FACTS}${relateInstruction}\n\nسياق المحادثة السابقة:\n${contextStr || 'لا يوجد'}`;
+  const systemPrompt = personality ? `${personality}\n\n${baseContext}` : baseContext;
   let reply = null;
   try {
     const results = await extra.chatWithModels(question, systemPrompt);
@@ -297,7 +310,11 @@ async function getFastReply(question, contextStr) {
   if (!reply) {
     try { const res = await extra.chatWithChatX(question, 'gemini'); if (res.answer) reply = res.answer; } catch(e) {}
   }
-  if (!reply) reply = 'عذراً، لم أستطع معالجة سؤالك حالياً.';
+  if (!reply) {
+    reply = relateToDxn
+      ? 'سؤالك جميل! بكل بساطة، كل ما تقوم به في حياتك اليومية له علاقة بالصحة والفرص، وهذا بالضبط ما تقدمه DXN — منتجات صحية عالية الجودة وفرصة دخل إضافي. اسألني عن المنتجات أو طريقة البدء وسأشرح لك كل شيء بالتفصيل.'
+      : 'عذراً، لم أستطع معالجة سؤالك حالياً.';
+  }
   return reply;
 }
 
@@ -313,12 +330,39 @@ function isDxnRelated(text) {
     'التعريفية', 'البرنامج التعريفي', 'تعريف',
     'ارسل الملف', 'الملفات', 'اعادة ارسال',
     'اشتغل', 'اشتغل معاكم', 'اشترك معاكم', 'أشتغل معكم', 'اطلع معاكم', 'اعمل معاكم',
-    'بدي اشتغل', 'ابغى اشتغل', 'أريد العمل', 'اريد العمل', 'بغيت اشتغل'
+    'بدي اشتغل', 'ابغى اشتغل', 'أريد العمل', 'اريد العمل', 'بغيت اشتغل',
+    // الفروع والدول والانتشار
+    'فرع', 'فروع', 'دول', 'دوله', 'دولة', 'بلد', 'بلاد', 'يمن', 'اليمن', 'فروع في',
+    'موقع', 'مواقع', 'مكان', 'اماكن', 'أماكن', 'مكتب', 'مكاتب', 'منطقه', 'منطقة',
+    'موجود', 'موجوده', 'موجودة', 'متوفر', 'متوفره', 'متوفرة', 'توفر', 'توزيع',
+    'منتشر', 'منتشره', 'منتشرة', 'انتشار', 'عالمي', 'عالميه', 'عالمية', 'دولي', 'دوليه', 'دولية',
+    'عدد فروع', 'كم فرع', 'هل لديها', 'هل لديهم', 'هل يوجد', 'هل في', 'هل عندكم', 'عندكم', 'عندكو'
   ];
   for (const kw of keywords) {
     if (norm.includes(normalizeText(kw))) return true;
   }
+  // سؤال يبدأ بـ "هل" ويتضمن اسم شركة/دي اكس ان أو منتج
   return false;
+}
+
+// إجابات جاهزة للأسئلة الشائعة عن DXN (لا تحتاج انتظار الذكاء الاصطناعي)
+function getFaqReply(question) {
+  const norm = normalizeText(question);
+  const hasBranchQ = /فرع|فروع/.test(norm) && /يمن|بلد|دول|مكان|موقع|عندكم|موجود/.test(norm);
+  if (hasBranchQ) {
+    return `🏢 *نعم، شركة DXN لها حضور عالمي واسع* في أكثر من ١٠٠ دولة حول العالم.
+
+📌 بالنسبة لليمن: الاشتراك والتسجيل في DXN يتم عبر الشبكة والشركاء المعتمدين، ويمكنك العمل والحصول على المنتجات من أي مكان في اليمن.
+
+💡 إذا أردت، سأرسل لك الملفات التعريفية التي تشرح النظام بشكل كامل، أو أخبرني في أي محافظة أنت لأرشدك خطوات البدء.`;
+  }
+  const hasPriceQ = /سعر|اسعار|قيمه|قيمة|بكم|بكام|كم سعر/.test(norm);
+  if (hasPriceQ && /قهوه|قهوة|لينجزي|قشر|فطر|سبيرولينا|شامبو|منتج/.test(norm)) {
+    return `💰 المنتجات متنوعة والأسعار تختلف حسب النوع (قهوة لينجزي، قشر القهوة، فطر الريشي، منتجات العناية...).
+
+📄 *أرسل لك قائمة الأسعار والفوائد كاملة في ملف PDF* — اكتب "أرسل الملف" أو اسألني عن منتج محدد وسأعطيك تفاصيله.`;
+  }
+  return null;
 }
 
 async function getReply(userId, question, msgId) {
@@ -361,17 +405,26 @@ async function getReply(userId, question, msgId) {
     console.log('📄 طلب ملفات:', pdfRequest.keys);
   }
 
-  // وضع DXN فقط: أي سؤال غير مرتبط بـ DXN يحصل على رد تحويل
-  const cfg = getConfig();
-  if (cfg.dxnOnly && !pdfRequest && !isDxnRelated(question)) {
-    console.log(`🚫 سؤال غير مرتبط بـ DXN من ${userId}: "${question}"`);
-    const redirect = cfg.nonDxnReply || 'أنا متخصص في فرص ومنتجات DXN فقط، اسألني عن DXN وسأجيبك!';
-    setLastReply(userId, redirect);
-    await sendLongMessage(userId, redirect, msgId);
+  // سؤال شائع عن DXN له إجابة جاهزة دقيقة — نرد فوراً دون انتظار الذكاء الاصطناعي
+  const faqReply = getFaqReply(question);
+  if (faqReply) {
+    console.log(`✅ FAQ reply for user ${userId}: "${question}"`);
+    setLastReply(userId, faqReply);
+    await sendLongMessage(userId, faqReply, msgId);
     return;
   }
 
-  let reply = await getFastReply(question, contextStr);
+  // أي سؤال عام يُجاب مع ربطه بشركة DXN بشكل طبيعي (بدلاً من رفضه)
+  const cfg = getConfig();
+  if (cfg.dxnOnly && !pdfRequest && !isDxnRelated(question)) {
+    console.log(`🧭 سؤال عام من ${userId} سيُربط بـ DXN: "${question}"`);
+    const relateReply = await getFastReply(question, contextStr, true);
+    setLastReply(userId, relateReply);
+    await sendLongMessage(userId, relateReply, msgId);
+    return;
+  }
+
+  let reply = await getFastReply(question, contextStr, false);
   reply = cleanText(reply);
   reply = reply.replace(/[#*_|~`>+=]/g, '');
   reply = reply.replace(/هذه المعلومات مأخوذة من ملفات DXN/gi, '');

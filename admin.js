@@ -34,6 +34,7 @@ let client = null;
 const pendingEdit = new Map(); // userId -> field name being edited
 let lastSeen = { userId: null, text: null, at: null, isAdmin: null };
 let connState = { ok: false, error: null, connectedAt: null };
+let lastApiSend = { ok: null, error: null, at: null };
 
 // ========== أدوات ==========
 function truncate(text, max) {
@@ -59,12 +60,13 @@ function toGramJSButtons(buttons) {
 
 // إرسال/تعديل رسالة مع أزرار ملوّنة عبر HTTP Bot API.
 // هذا بديل عن client.sendMessage/editMessage عندما نريد أزراراً ملوّنة بالكامل.
+const STYLE_MAP = { blue: 'primary', green: 'success', red: 'danger', gray: 'secondary', grey: 'secondary' };
 async function botApiSend(userId, text, buttons, msgId = null) {
   const inline_keyboard = buttons.map(row =>
     row.map(b => {
       const obj = { text: b.text };
       if (b.data) obj.callback_data = Buffer.from(b.data).toString('utf8');
-      if (b.style) obj.style = b.style;
+      if (b.style) obj.style = STYLE_MAP[b.style] || b.style;
       return obj;
     })
   );
@@ -77,6 +79,7 @@ async function botApiSend(userId, text, buttons, msgId = null) {
     body: JSON.stringify(params)
   });
   const data = await res.json();
+  lastApiSend = { ok: !!data.ok, error: data.ok ? null : (data.description || res.statusText || 'HTTP error'), at: new Date().toISOString() };
   if (!data.ok) throw new Error(data.description || 'Bot API error');
   return data.result?.message_id || msgId;
 }
@@ -549,7 +552,8 @@ export function getAdminStatus() {
     connected: connState.ok,
     admins: getConfig().admins,
     dxnOnly: getConfig().dxnOnly,
-    lastSeen
+    lastSeen,
+    lastApiSend
   };
 }
 
